@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Admin — Biriyani Challenge</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
+</script>
+</head>
+<body style="background:#fdf6ec">
+<div id="top"></div>
+
+<div class="chips">
+  <button class="chip on" data-t="dash" onclick="showTab(this)">📊 Live</button>
+  <button class="chip" data-t="coords" onclick="showTab(this)">👥 Coordinators</button>
+  <button class="chip" data-t="menu" onclick="showTab(this)">🍽 Menu</button>
+  <button class="chip" data-t="orders" onclick="showTab(this)">☰ All orders</button>
+</div>
+
+<!-- LIVE -->
+<div id="tab-dash">
+  <div class="stats">
+    <div class="stat"><b id="aTotal">—</b><span>Pre-orders</span></div>
+    <div class="stat"><b id="aPresold">—</b><span>Pre-sold value</span></div>
+    <div class="stat"><b id="aDel" style="color:var(--green)">—</b><span>Delivered</span></div>
+    <div class="stat"><b id="aPend" style="color:var(--saffron)">—</b><span>Pending</span></div>
+    <div class="stat"><b id="aCash" style="color:var(--green)">—</b><span>💵 Cash collected</span></div>
+    <div class="stat"><b id="aOut">—</b><span>Cash expected</span></div>
+  </div>
+
+  <h2>Per-coordinator (orders taken)</h2>
+  <div class="card"><table class="t" id="tblCoords"><thead><tr><th>Coordinator</th><th>Orders</th><th>Value</th><th>🟢/🟡</th></tr></thead><tbody></tbody></table></div>
+
+  <h2>Cash per person (handover day-end)</h2>
+  <div class="card"><div id="cashList"><p class="muted">No cash collected yet.</p></div></div>
+
+  <button onclick="exportCsv()" style="width:100%;margin-top:6px">🧾 Download day-end report (CSV)</button>
+  <a id="csvLink" download="biriyani-report.csv" style="display:none"></a>
+</div>
+
+<!-- COORDINATORS -->
+<div id="tab-coords" style="display:none">
+  <div class="card">
+    <div class="field"><label>Name</label><input id="ncName" autocapitalize="none"></div>
+    <div class="field"><label>4-digit PIN</label><input id="ncPin" inputmode="numeric" maxlength="4"></div>
+    <label style="font-size:13px"><input type="checkbox" id="ncAdmin" style="width:auto;margin-right:6px"> Make this coordinator an <b>Admin</b></label>
+    <button style="width:100%;margin-top:10px" onclick="addCoord()">+ Add coordinator</button>
+  </div>
+  <div id="coordList"></div>
+</div>
+
+<!-- MENU -->
+<div id="tab-menu" style="display:none">
+  <div class="card">
+    <div class="field"><label>Item name</label><input id="niName"></div>
+    <div class="field"><label>Price ₹</label><input id="niPrice" type="number" inputmode="numeric" min="0"></div>
+    <button style="width:100%" onclick="addItem()">+ Add menu item</button>
+  </div>
+  <div id="menuList"></div>
+</div>
+
+<!-- ALL ORDERS -->
+<div id="tab-orders" style="display:none">
+  <input id="search" placeholder="🔍 token / name / mobile / place…" oninput="renderOrders()">
+  <div id="orderList"></div>
+</div>
+
+<div class="bottomnav" style="display:none"></div>
+<script src="/js/common.js"></script>
+<script>
+const user = requireLogin(true);
+if (user) {
+  $('#top').innerHTML = topbar(user, 'Admin Panel ⚙️');
+  const bnav = document.querySelector('.bottomnav');
+  if (bnav) bnav.outerHTML = coordNav('admin');
+}
+
+let coords = [], items = [], orders = [];
+
+function showTab(btn) {
+  document.querySelectorAll('.chips .chip').forEach(c => c.classList.toggle('on', c.dataset.t === btn.dataset.t));
+  document.querySelectorAll('[id^=tab-]').forEach(t => t.style.display = 'none');
+  $('#tab-' + btn.dataset.t).style.display = 'block';
+}
+
+async function refresh() {
+  const [s1, s2, s3, s4] = await Promise.all([
+    api('summary'), api('coordinators'), api('items'), api('orders', undefined),
+  ]);
+  coords = s2.coordinators || []; items = s3.items || []; orders = s4.orders || [];
+  if (s1.error) return;
+  $('#aTotal').textContent = s1.total;
+  $('#aPresold').textContent = money(s1.presold);
+  $('#aDel').textContent = s1.delivered;
+  $('#aPend').textContent = s1.pending;
+  $('#aCash').textContent = money(s1.cashIn);
+  $('#aOut').textContent = money(s1.deliveredOutstanding);
+
+  $('#tblCoords').querySelector('tbody').innerHTML = (s1.byCoord || []).map(c => `
+    <tr><td>${esc(c.name)}${c.isAdmin ? ' ⭐' : ''}</td><td>${c.orders}</td><td>${money(c.revenue)}</td>
+    <td><span style="color:var(--green)">${c.delivered}</span>/<span style="color:var(--saffron)">${c.pending}</span></td></tr>`).join('');
+
+  const cashE = Object.entries(s1.cashPerDeliverer || {});
+  $('#cashList').innerHTML = cashE.length ? cashE.map(([n, v]) =>
+    `<div class="row" style="padding:6px 0"><b style="flex:1">${esc(n)}</b><b style="color:var(--green)">${money(v)}</b></div>`).join('')
+    : '<p class="muted">No cash collected yet.</p>';
+
+  $('#coordList').innerHTML = coords.map(c => `
+    <div class="card row"><b style="flex:1">${esc(c.name)}${c.isAdmin ? ' ⭐admin' : ''}</b>
+      <button class="ghost small" onclick="removeCoord(${c.id}, '${esc(c.name)}')">Remove</button></div>`).join('') || '<p class="muted">No coordinators yet.</p>';
+
+  $('#menuList').innerHTML = items.map(i => `
+    <div class="card row">
+      <input style="flex:1" value="${esc(i.name)}" id="mn${i.id}" onchange="updItem(${i.id})">
+      <input style="width:80px;text-align:center" type="number" value="${i.price}" id="mp${i.id}" onchange="updItem(${i.id})">
+      <button class="ghost small" onclick="rmItem(${i.id})">✕</button>
+    </div>`).join('') || '<p class="muted">No menu items yet.</p>';
+
+  renderOrders();
+}
+
+async function addCoord() {
+  const r = await api('coordinators', { name: $('#ncName').value, pin: $('#ncPin').value, isAdmin: $('#ncAdmin').checked });
+  if (r.error) return alert(r.error);
+  toast('✅ ' + r.coordinator.name + ' added (PIN: ' + $('#ncPin').value + ')');
+  $('#ncName').value = $('#ncPin').value = ''; $('#ncAdmin').checked = false;
+  refresh();
+}
+async function removeCoord(id, name) {
+  if (!confirm('Remove ' + name + '? (Their past orders stay in the record.)')) return;
+  await api('coordinators/remove', { id });
+  refresh();
+}
+async function addItem() {
+  const r = await api('items', { name: $('#niName').value, price: Number($('#niPrice').value) });
+  if (r.error) return alert(r.error);
+  $('#niName').value = $('#niPrice').value = '';
+  refresh();
+}
+async function updItem(id) {
+  await api('items/update', { id, name: $('#mn' + id).value, price: Number($('#mp' + id).value) });
+  toast('✅ Saved'); refresh();
+}
+async function rmItem(id) {
+  if (!confirm('Remove this item from the menu?')) return;
+  await api('items/remove', { id });
+  refresh();
+}
+
+let oFilterQ = '';
+function renderOrders() {
+  oFilterQ = ($('#search').value || '').trim().toLowerCase();
+  let list = orders;
+  if (oFilterQ) list = list.filter(o => {
+    const c = o.customer || {};
+    return ('#' + padTok(o.tokenNo) + ' ' + (c.name || '') + ' ' + (c.phone || '') + ' ' + (c.place || '') + ' ' + (c.address || '')).toLowerCase().includes(oFilterQ);
+  });
+  $('#orderList').innerHTML = list.slice(0, 100).map(adminOrderCard).join('') ||
+    '<p class="muted center" style="margin-top:16px">No orders yet.</p>';
+}
+function adminOrderCard(o) {
+  const c = o.customer || {};
+  const items = (o.items || []).map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
+  const collectedStr = o.cashCollected != null ? money(o.cashCollected) : money(o.total);
+  return `<div class="card ocard ${o.status}">
+    <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}
+      ${c.place || c.address ? '<div class="oaddr">📍 ' + esc(c.place || '') + ' ' + esc(c.address || '') + '</div>' : ''}</span>
+      <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 ' + collectedStr : '🟡 Pending'}</span></div>
+    <div class="oitems">${items}</div>
+    <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · <b>${money(o.total)}</b>${o.deliveredByName ? ' · handover ' + esc(o.deliveredByName) : ''}
+      ${o.status === 'pending'
+        ? ` · <button class="linklike" onclick="adminDeliver(${o.id})">mark delivered</button> <button class="linklike" style="color:var(--danger)" onclick="delOrder(${o.id})">delete</button>`
+        : ` · <button class="linklike" onclick="fixCash(${o.id}, ${o.cashCollected != null ? o.cashCollected : o.total})">fix cash</button>`}</div>
+  </div>`;
+}
+async function adminDeliver(id) {
+  const r = await api(`orders/${id}/deliver`, {});
+  if (r.error) return toast('⚠︎ ' + r.error);
+  toast('✅ Marked delivered'); refresh();
+}
+async function delOrder(id) {
+  if (!confirm('DELETE this order permanently?')) return;
+  const r = await api(`orders/${id}/update`, { delete: true });
+  if (r.error) return toast('⚠︎ ' + r.error);
+  toast('🗑️ Order deleted');
+  refresh();
+}
+async function fixCash(id, cur) {
+  const v = prompt('New cash collected amount (₹):', cur != null ? cur : '');
+  if (v == null || v.trim() === '') return;
+  const num = Math.max(0, Number(v) || 0);
+  const r = await api(`orders/${id}/update`, { cash: num });
+  if (r.error) return toast('⚠︎ ' + r.error);
+  toast('✅ Cash updated to ' + money(num));
+  refresh();
+}
+async function exportCsv() {
+  const r = await api('export.csv', undefined);
+  if (r.error) return alert(r.error);
+  const blob = new Blob([r.csv], { type: 'text/csv' });
+  const a = $('#csvLink'); a.href = URL.createObjectURL(blob);
+  a.download = 'biriyani-report-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

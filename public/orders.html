@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
+</script>
+<title>All Orders — Biriyani Challenge</title>
+</head>
+<body style="background:#fdf6ec">
+<div id="top"></div>
+
+<div class="stats">
+  <div class="stat"><b id="sTotal">—</b><span>Total pre-orders</span></div>
+  <div class="stat"><b id="sPending" style="color:var(--saffron)">—</b><span>Pending</span></div>
+</div>
+
+<div class="coordstrip" id="strip"></div>
+
+<div class="chips" id="chips">
+  <button class="chip on" data-f="all">All</button>
+  <button class="chip" data-f="mine">Mine</button>
+  <button class="chip" data-f="pending">🟡 Pending</button>
+  <button class="chip" data-f="delivered">🟢 Delivered</button>
+</div>
+
+<input id="search" placeholder="🔍 Find token / name / mobile / place…" oninput="render()">
+<div id="list"></div>
+
+<div class="bottomnav" style="display:none"></div>
+<script src="/js/common.js"></script>
+<script>
+const user = requireLogin(false);
+if (user) {
+  $('#top').innerHTML = topbar(user, 'All Orders');
+  document.querySelector('.bottomnav').outerHTML = coordNav('orders');
+}
+
+let allOrders = [], coords = [], filter = 'all', s = {};
+
+$('#chips').addEventListener('click', e => {
+  if (!e.target.dataset.f) return;
+  filter = e.target.dataset.f;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.f === filter));
+  render();
+});
+
+async function refresh() {
+  if (!user) return;
+  const r = await api('orders?status=' + filterChipsToStatus(), undefined);
+  if (r.error) return;
+  allOrders = r.orders || []; coords = r.coordinators || [];
+  paintSummary();
+  render();
+}
+function filterChipsToStatus() { return ''; } // server returns all; chips filter client-side
+
+function paintSummary() {
+  const total = allOrders.length;
+  const pend = allOrders.filter(o => o.status === 'pending').length;
+  $('#sTotal').textContent = total;
+  $('#sPending').textContent = pend;
+  const byC = (coords || []).map(c => {
+    const n = allOrders.filter(o => o.takenBy === c.id).length;
+    return n ? `<b>${esc(c.name)} ${n}</b>` : null;
+  }).filter(Boolean);
+  const grand = `<b>· Total ${total}</b>`;
+  $('#strip').innerHTML = (byC.join(' · ') || '') + ' ' + grand;
+}
+
+function render() {
+  const q = ($('#search').value || '').trim().toLowerCase();
+  let list = allOrders.slice();
+  if (filter === 'mine') list = list.filter(o => o.takenBy === user.id);
+  if (filter === 'pending') list = list.filter(o => o.status === 'pending');
+  if (filter === 'delivered') list = list.filter(o => o.status === 'delivered');
+  if (q) list = list.filter(o => {
+    const c = o.customer || {};
+    const hay = ['#' + padTok(o.tokenNo), c.name || '', c.phone || '', c.place || '', c.address || ''].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  $('#list').innerHTML = list.length
+    ? list.map(orderCard).join('')
+    : '<p class="muted center" style="margin-top:20px">No orders match ' + (q ? '“' + esc(q) + '”' : 'this filter') + '.</p>';
+}
+
+function orderCard(o) {
+  const items = (o.items || []).map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
+  const c = o.customer || {};
+  return `<div class="card ocard ${o.status}">
+    <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 Delivered' : '🟡 Pending'}</span></div>
+    <div class="oitems">${items}</div>
+    ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
+    <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · <b>${money(o.total)}</b>${o.deliveredByName ? ' · handover by ' + esc(o.deliveredByName) : ''}</div>
+  </div>`;
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

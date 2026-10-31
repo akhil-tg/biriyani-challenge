@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
+</script>
+<title>Delivery — Biriyani Challenge</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body style="background:#fdf6ec">
+<div id="top"></div>
+
+<h2>Find order</h2>
+<input id="search" placeholder="🔍 token / name / mobile / place…" oninput="render()" autocomplete="off">
+
+<div class="chips">
+  <button class="chip on" data-s="pending" onclick="setScope(this)">🟡 Pending</button>
+  <button class="chip" data-s="delivered" onclick="setScope(this)">🟢 Delivered</button>
+</div>
+
+<div id="list"><p class="muted center" style="margin-top:16px">Search a token (e.g. 047), customer name or phone.</p></div>
+
+<h2 style="margin-top:16px">My cash handling today 💰</h2>
+<div class="stats">
+  <div class="stat"><b id="dCount">—</b><span>Delivered by me</span></div>
+  <div class="stat"><b id="dCash" style="color:var(--green)">—</b><span>Cash collected by me</span></div>
+</div>
+
+<div class="bottomnav" style="display:none"></div>
+<script src="/js/common.js"></script>
+<script>
+const user = requireLogin(false);
+if (user) {
+  $('#top').innerHTML = topbar(user, 'Delivery 🥘');
+  document.querySelector('.bottomnav').outerHTML = coordNav('deliver');
+}
+
+let scope = 'pending', allOrders = [], done = {};
+
+async function refresh() {
+  if (!user) return;
+  const r = await api('orders', undefined);
+  if (r.error) return;
+  allOrders = r.orders || [];
+  const mineDone = allOrders.filter(o => o.deliveredBy === user.id && o.status === 'delivered');
+  $('#dCount').textContent = mineDone.length;
+  $('#dCash').textContent = money(mineDone.reduce((s, o) => s + (o.cashCollected || 0), 0));
+  render();
+}
+
+function setScope(btn) {
+  scope = btn.dataset.s;
+  document.querySelectorAll('.chips .chip').forEach(c => c.classList.toggle('on', c.dataset.s === scope));
+  render();
+}
+
+function find() {
+  const q = ($('#search').value || '').trim().toLowerCase();
+  let list = allOrders.filter(o => o.status === scope);
+  if (!q && scope === 'pending') {
+    list = list.slice(0, 12); // most recent pending for quick handover
+  }
+  if (q) list = list.filter(o => {
+    const c = o.customer || {};
+    const hay = ['#' + padTok(o.tokenNo), c.name || '', c.phone || '', c.place || '', c.address || ''].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  return list.slice(0, 20);
+}
+
+function render() {
+  const list = find();
+  $('#list').innerHTML = list.length ? list.map(deliverCard).join('') :
+    '<p class="muted center" style="margin-top:16px">' + (scope === 'pending' ? 'No pending orders found.' : 'No delivered orders found.') + '</p>';
+}
+
+function deliverCard(o) {
+  const c = o.customer || {};
+  const items = (o.items || []).map(i => `<span class="badge pending" style="margin-right:6px">${esc(i.name)} ×${i.qty}</span>`).join('');
+  if (o.status === 'delivered') {
+    return `<div class="card ocard delivered">
+      <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
+        <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}</span>
+        <span class="badge delivered">🟢 Delivered</span></div>
+      <div class="oitems">${items}</div>
+      <div class="ometa"><b>${money(o.cashCollected != null ? o.cashCollected : o.total)}</b> collected by ${esc(o.deliveredByName || 'Unknown')} · ${new Date(o.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+    </div>`;
+  }
+  return `<div class="card ocard pending">
+    <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span class="badge pending">🟡 Pending</span></div>
+    <div class="oitems">${items}</div>
+    ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
+    <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · <b>${money(o.total)}</b></div>
+    <hr class="sep">
+    <div class="row">
+      <input id="cash${o.id}" inputmode="numeric" style="flex:1;text-align:center;font-weight:800" value="${o.total}">
+      <button onclick="deliver(${o.id})">✅ DELIVERED</button>
+    </div>
+  </div>`;
+}
+
+async function deliver(id) {
+  const cashEl = $('#cash' + id);
+  const cash = cashEl ? cashEl.value.trim() : '';
+  const o = allOrders.find(x => x.id === id);
+  const custName = (o && o.customer && o.customer.name) || 'Walk-in';
+  const tok = o ? padTok(o.tokenNo) : id;
+  if (confirm(`Deliver #${tok} — ${custName}?\nCash received: ₹${cash || (o ? o.total : 0)}`) === false) return;
+  const r = await api(`orders/${id}/deliver`, { cash });
+  if (r.error) return toast('⚠︎ ' + r.error);
+  toast(`✅ #${padTok(r.order.tokenNo)} delivered — ${money(r.order.cashCollected)} collected`);
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 6000);
+</script>
+</body>
+</html>

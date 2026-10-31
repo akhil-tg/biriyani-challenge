@@ -1,0 +1,9 @@
+{
+  "name": "Biriyani Challenge — Order Tracker",
+  "short_name": "Biriyani HC",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#fdf6ec",
+  "theme_color": "#e85d04",
+  "icons": []
+}

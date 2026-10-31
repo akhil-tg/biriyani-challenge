@@ -1,0 +1,12 @@
+{
+  "name": "biriyani-challenge",
+  "version": "1.0.0",
+  "description": "Biriyani Challenge — zero-dependency order tracker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

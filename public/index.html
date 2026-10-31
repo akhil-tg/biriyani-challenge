@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(() => console.log('SW registered')).catch(e => console.log('SW fail', e));
+}
+</script>
+<title>Biriyani Challenge — Login</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body style="background:#fdf6ec">
+<div style="text-align:center;margin-top:40px">
+  <div style="font-size:64px">🍛</div>
+  <h1>Biriyani Challenge</h1>
+  <p class="muted">Order Tracker</p>
+</div>
+
+<!-- login -->
+<div id="loginBox" class="card" style="max-width:360px;margin:20px auto;display:none">
+  <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. anil"></div>
+  <div class="field"><label>4-digit PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
+  <button style="width:100%;padding:14px" onclick="doLogin()">LOGIN →</button>
+  <p class="muted center" style="margin-top:10px">Coordinators &amp; Admin login here</p>
+</div>
+
+<!-- first-run admin setup -->
+<div id="setupBox" class="card" style="max-width:360px;margin:20px auto;display:none">
+  <h2 class="center">First time setup 👋</h2>
+  <p class="muted center">Create the Admin account to get started.</p>
+  <div class="field"><label>Admin name</label><input id="admName" placeholder="e.g. admin"></div>
+  <div class="field"><label>4-digit PIN</label><input id="admPin" type="password" inputmode="numeric" maxlength="4" placeholder="e.g. 1234" onkeydown="if(event.key==='Enter') doSetup()"></div>
+  <button style="width:100%;padding:14px" onclick="doSetup()">CREATE ADMIN</button>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+async function go(user) {
+  localStorage.setItem('bc_uid', user.id);
+  localStorage.setItem('bc_user', JSON.stringify(user));
+  location.href = user.isAdmin ? '/admin.html' : '/order.html';
+}
+async function doLogin() {
+  const name = ($('#name').value || '').trim();
+  const pin = ($('#pin').value || '').trim();
+  if (!name || !pin) return alert('Please enter both name and PIN');
+  const out = await api('login', { name, pin });
+  if (!out.ok) return alert(out.error || 'Login failed');
+  go(out.user);
+}
+async function doSetup() {
+  const name = ($('#admName').value || '').trim();
+  const pin = ($('#admPin').value || '').trim();
+  if (!name || !/^\d{4}$/.test(pin)) return alert('Name and 4-digit PIN required');
+  const out = await api('setup', { name, pin });
+  if (!out.ok) return alert(out.error || 'Setup failed');
+  go(out.user);
+}
+(async () => {
+  const st = await api('status');
+  if (st && st.needSetup) {
+    const demo = document.createElement('button');
+    demo.className = 'ghost';
+    demo.style.cssText = 'display:block;margin:12px auto;padding:10px 16px';
+    demo.textContent = '🎓 Load demo data (practice mode)';
+    if (!st.hasData) {
+      demo.onclick = async () => {
+        if (!confirm('Load demo coordinators, menu and sample orders?')) return;
+        const r = await api('seed-demo', {});
+        alert(r.ok ? 'Demo data loaded!\nAdmin login: name "admin", PIN "1234".\nCoordinators: anil / sunil / babu, PIN "1111".' : (r.error || 'Failed'));
+        location.reload();
+      };
+      document.body.appendChild(demo);
+    }
+    $('#setupBox').style.display = 'block';
+  } else {
+    $('#loginBox').style.display = 'block';
+    const u = getUser();
+    if (u) location.href = u.isAdmin ? '/admin.html' : '/order.html';
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(() => console.log('SW registered')).catch(e => console.log('SW fail', e));
+}
+</script>
+<title>New Order — Biriyani Challenge</title>
+</head>
+<body style="background:#fdf6ec">
+<div id="top"></div>
+
+<!-- new order form -->
+<div id="formWrap">
+  <h2>New Order <span id="tokPreview" class="muted"></span></h2>
+  <div class="field"><label id="lblName">👤 Customer name *</label><input id="cname" autocomplete="off"></div>
+  <div class="field"><label>📱 Mobile</label><input id="cphone" type="tel" inputmode="numeric" autocomplete="off"></div>
+  <div class="field"><label>📍 Place</label><input id="cplace" autocomplete="off"></div>
+  <div class="field"><label>🏠 Address</label><textarea id="caddress" rows="2" style="width:100%;padding:10px;border:1.5px solid #eadbc8;border-radius:10px;font:inherit"></textarea></div>
+
+  <h2>Items</h2>
+  <div id="menu" class="card"><p class="muted">Loading menu…</p></div>
+
+  <div class="totalbar"><span>TOTAL</span><span class="spacer"></span><span id="total">₹0</span></div>
+  <button style="width:100%;padding:16px;font-size:16px" onclick="saveOrder()">✅ SAVE ORDER</button>
+  <button class="ghost" style="width:100%;margin-top:8px" onclick="clearForm()">Clear form</button>
+</div>
+
+<!-- my recent orders -->
+<h2 style="margin-top:18px">My recent orders <a href="/orders.html" style="font-size:13px;color:var(--saffron)">see all →</a></h2>
+<div id="mine"></div>
+
+<div class="bottomnav" style="display:none"></div>
+<script src="/js/common.js"></script>
+<script>
+const user = requireLogin(false);
+if (user) {
+  document.getElementById('top').innerHTML = topbar(user, 'Hi ' + user.name + ' 👋');
+  document.querySelector('.bottomnav').outerHTML = coordNav('order');
+}
+
+let items = [];
+const qty = {};
+
+async function loadMenu() {
+  const r = await api('items');
+  items = r.items || [];
+  const box = $('#menu');
+  if (!items.length) { box.innerHTML = '<p class="muted">No items yet — ask Admin to add menu items.</p>'; return; }
+  box.innerHTML = items.map(i => `
+    <div class="menuitem">
+      <div class="name">${esc(i.name)}</div>
+      <div class="price">${money(i.price)}</div>
+      <div class="stepper">
+        <button onclick="bump(${i.id},-1)">−</button>
+        <span class="qty" id="q${i.id}">0</span>
+        <button onclick="bump(${i.id},1)">+</button>
+      </div>
+    </div>`).join('');
+}
+
+function bump(id, d) {
+  qty[id] = Math.max(0, (qty[id] || 0) + d);
+  $('#q' + id).textContent = qty[id];
+  const total = items.reduce((s, i) => s + (qty[i.id] || 0) * i.price, 0);
+  $('#total').textContent = money(total);
+}
+
+function clearForm() {
+  $('#cname').value = $('#cphone').value = $('#cplace').value = $('#caddress').value = '';
+  for (const k of Object.keys(qty)) { qty[k] = 0; const el = $('#q' + k); if (el) el.textContent = '0'; }
+  $('#total').textContent = '₹0';
+}
+
+function orderPayload() {
+  const sel = items.filter(i => qty[i.id] > 0).map(i => ({ itemId: i.id, qty: qty[i.id] }));
+  return {
+    customer: { name: $('#cname').value, phone: $('#cphone').value, place: $('#cplace').value, address: $('#caddress').value },
+    items: sel,
+  };
+}
+
+async function saveOrder() {
+  const p = orderPayload();
+  const sel = items.filter(i => qty[i.id] > 0);
+  if (!sel.length) return toast('Add at least one item 🍗');
+  if (!p.customer.name.trim()) return toast('Customer name is required');
+  try {
+    const r = await api('orders', p);
+    if (r && r.error) return toast('⚠️ ' + r.error);
+    if (!r || !r.order) throw new Error('No order returned');
+    const o = r.order;
+    flash(`✅ Token #${padTok(o.tokenNo)}<br><b style="font-size:20px">${esc(o.customer.name)}</b><br>${money(o.total)} · ${o.items.map(i => esc(i.name) + ' ×' + i.qty).join(', ')}`);
+    clearForm();
+    loadMine();
+  } catch (e) {
+    // offline fallback — queue locally, sync later
+    const q = JSON.parse(localStorage.getItem('bc_queue') || '[]');
+    q.push({ p, at: Date.now() });
+    localStorage.setItem('bc_queue', JSON.stringify(q));
+    toast('📴 No server! Order saved on this phone — it will sync automatically.');
+    clearForm();
+  }
+}
+
+function flash(html) {
+  let f = $('#flash');
+  if (!f) {
+    f = document.createElement('div'); f.id = 'flash'; f.className = 'flash';
+    f.innerHTML = '<div class="box"><div class="big">✅</div><div id="fm" style="margin-top:8px"></div><button style="margin-top:14px;padding:8px 22px" onclick="document.getElementById(\'flash\').classList.remove(\'show\')">OK</button></div>';
+    f.onclick = (e) => { if (e.target === f) f.classList.remove('show'); };
+    document.body.appendChild(f);
+  }
+  f.querySelector('#fm').innerHTML = html;
+  f.classList.add('show');
+}
+
+async function loadMine() {
+  if (!user) return;
+  const r = await api('orders', undefined);
+  const list = r.orders || [];
+  if (list.length) {
+    const maxTok = list.reduce((m, o) => Math.max(m, o.tokenNo || 0), 0);
+    const tokEl = $('#tokPreview');
+    if (tokEl) tokEl.textContent = '(Next: #' + padTok(maxTok + 1) + ')';
+  }
+  const mine = list.filter(o => o.takenBy === user.id).slice(0, 6);
+  $('#mine').innerHTML = mine.length ? mine.map(o => orderCard(o, false)).join('') : '<p class="muted">No orders yet. Tap + to create the first one!</p>';
+}
+
+function orderCard(o, showAddr) {
+  const items = (o.items || []).map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
+  const c = o.customer || {};
+  return `<div class="card ocard ${o.status}">
+    <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 Delivered' : '🟡 Pending'}</span></div>
+    <div class="oitems">${items}</div>
+    ${showAddr && (c.place || c.address) ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
+    <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · <b>${money(o.total)}</b>${o.deliveredByName ? ' · handover by ' + esc(o.deliveredByName) : ''}</div>
+  </div>`;
+}
+
+/* offline queue flush */
+async function flushQueue() {
+  const q = JSON.parse(localStorage.getItem('bc_queue') || '[]');
+  if (!q.length) return;
+  const left = [];
+  for (const job of q) {
+    try {
+      const r = await api('orders', job.p);
+      if (r && r.error) {
+        console.warn('Dropping invalid offline order:', r.error, job);
+        continue;
+      }
+    } catch { left.push(job); break; }
+  }
+  localStorage.setItem('bc_queue', JSON.stringify(left));
+  if (q.length > left.length) toast('☁️ Synced ' + (q.length - left.length) + ' offline order(s)!');
+}
+setInterval(flushQueue, 10000);
+window.addEventListener('online', flushQueue);
+
+if (user) {
+  loadMenu().then(loadMine);
+}
+</script>
+</body>
+</html>
