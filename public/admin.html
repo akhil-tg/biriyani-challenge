@@ -13,6 +13,21 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <body style="background:#fdf6ec">
 <div id="top"></div>
 
+<!-- admin login (shown when not logged in as an admin) -->
+<div id="adminLogin" class="card" style="max-width:360px;margin:30px auto;display:none">
+  <h2 class="center">Admin login 🔐</h2>
+  <div id="alAuth" style="display:none">
+    <div class="field"><label>Email</label><input id="alEmail" type="email" autocapitalize="none" autocomplete="username" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+    <div class="field"><label>Password</label><input id="alPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  </div>
+  <div id="alPin" style="display:none">
+    <div class="field"><label>Your name</label><input id="alName" autocapitalize="none" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+    <div class="field"><label>4-digit PIN</label><input id="alPinInput" type="password" inputmode="numeric" maxlength="4" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  </div>
+  <button style="width:100%;padding:14px" onclick="adminDoLogin()">LOGIN →</button>
+  <p class="muted center" style="margin-top:10px">Admins only · coordinators log in at the home page</p>
+</div>
+
 <div class="chips">
   <button class="chip on" data-t="dash" onclick="showTab(this)">📊 Live</button>
   <button class="chip" data-t="coords" onclick="showTab(this)">👥 Coordinators</button>
@@ -77,21 +92,68 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <div class="bottomnav" style="display:none"></div>
 <script src="/js/common.js"></script>
 <script>
-const user = requireLogin(true);
-if (user) {
-  $('#top').innerHTML = topbar(user, 'Admin Panel ⚙️');
-  const bnav = document.querySelector('.bottomnav');
-  if (bnav) bnav.outerHTML = coordNav('admin');
-}
+let user = null, authMode = false;
 
-// which login mode are we in? (Supabase auth vs legacy PIN)
-const authMode = !!(await (async () => {
+(async function adminInit() {
   const st = await api('status');
-  return st && st.setupLocked;
-})());
-if (authMode) {
-  $('#ncAuthFields').style.display = 'block';
-  $('#ncLegacyFields').style.display = 'none';
+  authMode = !!(st && st.setupLocked);
+  $('#ncAuthFields').style.display = authMode ? 'block' : 'none';
+  $('#ncLegacyFields').style.display = authMode ? 'none' : 'block';
+  $('#alAuth').style.display = authMode ? 'block' : 'none';
+  $('#alPin').style.display = authMode ? 'none' : 'block';
+
+  const u = getUser();
+  const hasSession = authMode ? !!localStorage.getItem('bc_tok') : !!localStorage.getItem('bc_uid');
+  if (u && u.isAdmin && hasSession) {
+    user = u;
+    $('#top').innerHTML = topbar(user, 'Admin Panel ⚙️');
+    const bnav = document.querySelector('.bottomnav');
+    if (bnav) bnav.outerHTML = coordNav('admin');
+    refresh();
+    setInterval(refresh, 15000);
+  } else {
+    // not an admin session -> show only the admin login card
+    document.querySelector('.chips').style.display = 'none';
+    document.querySelectorAll('[id^=tab-]').forEach(t => t.style.display = 'none');
+    $('#adminLogin').style.display = 'block';
+  }
+})();
+
+async function adminDoLogin() {
+  if ($('#alAuth').style.display !== 'none') {
+    const email = ($('#alEmail').value || '').trim();
+    const pass = $('#alPass').value || '';
+    if (!email || !pass) return alert('Email and password required');
+    const out = await api('auth/login', { email, password: pass });
+    if (!out.ok) return alert(out.error || 'Login failed');
+    localStorage.setItem('bc_tok', out.access_token);
+    if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
+  } else {
+    const name = ($('#alName').value || '').trim();
+    const pin = ($('#alPinInput').value || '').trim();
+    if (!name || !pin) return alert('Name and PIN required');
+    const out = await api('login', { name, pin });
+    if (!out.ok) return alert(out.error || 'Login failed');
+    if (!out.user.isAdmin) {
+      return alert('Only admins can log in here. Coordinators use the home page.');
+    }
+    localStorage.setItem('bc_uid', out.user.id);
+    localStorage.setItem('bc_user', JSON.stringify(out.user));
+    location.reload();
+  }
+  const me = await api('me');
+  if (!me.user) {
+    logout(true);
+    return alert(me.error || 'Login failed');
+  }
+  if (!me.user.isAdmin) {
+    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
+    localStorage.removeItem('bc_uid');
+    return alert('Only admins can log in here. Coordinators use the home page.');
+  }
+  localStorage.setItem('bc_uid', me.user.id);
+  localStorage.setItem('bc_user', JSON.stringify(me.user));
+  location.reload();
 }
 
 let coords = [], items = [], orders = [];
@@ -226,9 +288,6 @@ async function exportCsv() {
   a.download = 'biriyani-report-' + new Date().toISOString().slice(0, 10) + '.csv';
   a.click();
 }
-
-refresh();
-setInterval(refresh, 15000);
 </script>
 </body>
 </html>

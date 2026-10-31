@@ -23,17 +23,17 @@ if ('serviceWorker' in navigator) {
 <div id="loginBox" class="card" style="max-width:360px;margin:20px auto;display:none">
   <!-- legacy PIN mode (local file deployments) -->
   <div id="pinLogin">
-    <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. anil"></div>
+    <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. aman"></div>
     <div class="field"><label>4-digit PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
     <button style="width:100%;padding:14px" onclick="doLogin()">LOGIN →</button>
-    <p class="muted center" style="margin-top:10px">Coordinators &amp; Admin login here</p>
+    <p class="muted center" style="margin-top:10px">Coordinators login here</p>
   </div>
   <!-- Supabase Authentication mode -->
   <div id="authLogin" style="display:none">
     <div class="field"><label>Email</label><input id="lgEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
     <div class="field"><label>Password</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
     <button style="width:100%;padding:14px" onclick="doAuthLogin()">LOGIN →</button>
-    <p class="muted center" style="margin-top:10px">Accounts are created by the admin (or the Supabase dashboard).</p>
+    <p class="muted center" style="margin-top:10px">Coordinators login here · admins use <b>/admin</b></p>
   </div>
 </div>
 
@@ -59,6 +59,7 @@ async function doLogin() {
   if (!name || !pin) return alert('Please enter both name and PIN');
   const out = await api('login', { name, pin });
   if (!out.ok) return alert(out.error || 'Login failed');
+  if (out.user.isAdmin) return alert('Admins log in via the /admin page, not here.');
   go(out.user);
 }
 async function doSetup() {
@@ -69,7 +70,7 @@ async function doSetup() {
   if (!out.ok) return alert(out.error || 'Setup failed');
   go(out.user);
 }
-/* Supabase Authentication login (email + password) */
+/* Supabase Authentication login (email + password) — coordinators only */
 async function doAuthLogin() {
   const email = ($('#lgEmail').value || '').trim();
   const pass = $('#lgPass').value || '';
@@ -79,7 +80,16 @@ async function doAuthLogin() {
   localStorage.setItem('bc_tok', out.access_token);
   if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
   const me = await api('me');
-  if (!me.user) return alert(me.error || 'Login failed');
+  if (!me.user) {
+    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
+    return alert(me.error || 'Login failed');
+  }
+  if (me.user.isAdmin) {
+    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
+    return alert('Admins log in via the /admin page, not here.');
+  }
+  localStorage.setItem('bc_uid', me.user.id);
+  localStorage.setItem('bc_user', JSON.stringify(me.user));
   go(me.user);
 }
 (async () => {
