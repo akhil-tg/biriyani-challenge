@@ -12,7 +12,7 @@ const path = require('path');
 const os = require('os');
 
 const shared = require('./shared-api.js');
-const { api, setSave, hydrate } = shared;
+const { api, setSave, setSetupLocked, hydrate } = shared;
 
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
@@ -28,6 +28,9 @@ const DATA_FILE = path.join(DATA_DIR, 'db.json');
 const SUPA_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPA_KEY = process.env.SUPABASE_KEY || '';
 const SUPA_ON = !!(SUPA_URL && SUPA_KEY);
+
+// Supabase-backed -> admin must be provisioned in Supabase, not via the web
+setSetupLocked(SUPA_ON);
 
 let saveTimer = null;
 let saving = false;        // a Supabase push is in flight

@@ -62,20 +62,26 @@ async function doSetup() {
 (async () => {
   const st = await api('status');
   if (st && st.needSetup) {
-    const demo = document.createElement('button');
-    demo.className = 'ghost';
-    demo.style.cssText = 'display:block;margin:12px auto;padding:10px 16px';
-    demo.textContent = '🎓 Load demo data (practice mode)';
-    if (!st.hasData) {
-      demo.onclick = async () => {
-        if (!confirm('Load demo coordinators, menu and sample orders?')) return;
-        const r = await api('seed-demo', {});
-        alert(r.ok ? 'Demo data loaded!\nAdmin login: name "admin", PIN "1234".\nCoordinators: anil / sunil / babu, PIN "1111".' : (r.error || 'Failed'));
-        location.reload();
-      };
-      document.body.appendChild(demo);
+    if (st.setupLocked) {
+      // locked deployment: admin must be provisioned directly in the datastore
+      $('#setupBox').innerHTML = '<p class="center">🔒 This deployment is locked</p><p class="muted center">The admin account cannot be created here.<br>It is provisioned directly in Supabase by the owner.</p>';
+    } else {
+      const demo = document.createElement('button');
+      demo.className = 'ghost';
+      demo.style.cssText = 'display:block;margin:12px auto;padding:10px 16px';
+      demo.textContent = '🎓 Load demo data (practice mode)';
+      if (!st.hasData) {
+        demo.onclick = async () => {
+          if (!confirm('Load demo coordinators, menu and sample orders?')) return;
+          const r = await api('seed-demo', {});
+          alert(r.ok ? 'Demo data loaded!\nAdmin login: name "admin", PIN "1234".\nCoordinators: anil / sunil / babu, PIN "1111".' : (r.error || 'Failed'));
+          location.reload();
+        };
+        document.body.appendChild(demo);
+      }
     }
     $('#setupBox').style.display = 'block';
+    $('#loginBox').style.display = 'block';
   } else {
     $('#loginBox').style.display = 'block';
     const u = getUser();

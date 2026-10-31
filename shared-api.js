@@ -11,8 +11,12 @@ const defaultCounters = () => ({ order: 0, token: 0 });
 
 let db = { coordinators: [], items: [], orders: [], counters: { order: 0, token: 0 } };
 let save = () => {};
+let setupLocked = false;
 
 function setSave(fn) { save = fn; }
+// When true, POST /setup and POST /seed-demo refuse web-based admin creation —
+// the admin must be provisioned directly in the datastore (Supabase).
+function setSetupLocked(v) { setupLocked = !!v; }
 
 /* Replace db contents in place so existing references stay valid. */
 function hydrate(data) {
@@ -54,10 +58,12 @@ const api = {};
 api['GET /status'] = () => ({
   needSetup: !db.coordinators.some(c => c.active && c.isAdmin),
   hasData: db.coordinators.length > 0 || db.orders.length > 0,
+  setupLocked: setupLocked,
 });
 
 // first-run: create the first admin (only allowed while no admin exists)
 api['POST /setup'] = b => {
+  if (setupLocked) return { error: 'Admin creation is locked on this deployment — provision the admin directly in Supabase.' };
   if (db.coordinators.some(c => c.active && c.isAdmin)) return { error: 'Setup already done' };
   const name = (b.name || '').trim();
   const pin = (b.pin || '').trim();
@@ -303,6 +309,7 @@ api['GET /export.csv'] = (b, user) => {
 };
 
 api['POST /seed-demo'] = (b, user) => {
+  if (setupLocked) return { error: 'Demo data is disabled on this deployment.' };
   if (db.coordinators.length || db.orders.length) return { error: 'Data already exists (nothing seeded)' };
   const mk = (name, pin, isAdmin) => ({ id: 888000 + db.coordinators.length, name, pin, isAdmin: !!isAdmin, active: true, createdAt: now() });
   db.coordinators.push(mk('admin', '1234', true));  for (const n of ['anil', 'sunil', 'babu']) db.coordinators.push(mk(n, '1111'));
@@ -343,4 +350,4 @@ api['POST /seed-demo'] = (b, user) => {
   return { ok: true };
 };
 
-module.exports = { api, setSave, hydrate, getDb: () => db, countersEmpty: defaultCounters, findCoordinatorByAuth };
+module.exports = { api, setSave, setSetupLocked, hydrate, getDb: () => db, countersEmpty: defaultCounters, findCoordinatorByAuth };

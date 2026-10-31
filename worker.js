@@ -11,7 +11,10 @@
  */
 import shared from './shared-api.js';
 
-const { api, hydrate, getDb } = shared;
+const { api, setSave, setSetupLocked, hydrate, getDb } = shared;
+
+// Cloudflare deployments are always Supabase-backed -> admin comes from Supabase only
+setSetupLocked(true);
 
 const READ_CACHE_MS = 2000; // max staleness for GET requests
 let lastLoad = 0;           // ms timestamp of the last Supabase load (per isolate)
