@@ -21,10 +21,20 @@ if ('serviceWorker' in navigator) {
 
 <!-- login -->
 <div id="loginBox" class="card" style="max-width:360px;margin:20px auto;display:none">
-  <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. anil"></div>
-  <div class="field"><label>4-digit PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
-  <button style="width:100%;padding:14px" onclick="doLogin()">LOGIN →</button>
-  <p class="muted center" style="margin-top:10px">Coordinators &amp; Admin login here</p>
+  <!-- legacy PIN mode (local file deployments) -->
+  <div id="pinLogin">
+    <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. anil"></div>
+    <div class="field"><label>4-digit PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
+    <button style="width:100%;padding:14px" onclick="doLogin()">LOGIN →</button>
+    <p class="muted center" style="margin-top:10px">Coordinators &amp; Admin login here</p>
+  </div>
+  <!-- Supabase Authentication mode -->
+  <div id="authLogin" style="display:none">
+    <div class="field"><label>Email</label><input id="lgEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
+    <div class="field"><label>Password</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
+    <button style="width:100%;padding:14px" onclick="doAuthLogin()">LOGIN →</button>
+    <p class="muted center" style="margin-top:10px">Accounts are created by the admin (or the Supabase dashboard).</p>
+  </div>
 </div>
 
 <!-- first-run admin setup -->
@@ -59,8 +69,33 @@ async function doSetup() {
   if (!out.ok) return alert(out.error || 'Setup failed');
   go(out.user);
 }
+/* Supabase Authentication login (email + password) */
+async function doAuthLogin() {
+  const email = ($('#lgEmail').value || '').trim();
+  const pass = $('#lgPass').value || '';
+  if (!email || !pass) return alert('Please enter both email and password');
+  const out = await api('auth/login', { email, password: pass });
+  if (!out.ok) return alert(out.error || 'Login failed');
+  localStorage.setItem('bc_tok', out.access_token);
+  if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
+  const me = await api('me');
+  if (!me.user) return alert(me.error || 'Login failed');
+  go(me.user);
+}
 (async () => {
   const st = await api('status');
+  if (st && st.setupLocked) {
+    // Supabase Authentication deployment: admins are created in the Supabase
+    // dashboard; the first login claims them. Everyone logs in with email.
+    $('#setupBox').style.display = 'none';
+    $('#authLogin').style.display = 'block';
+    $('#loginBox').style.display = 'block';
+    const u = getUser();
+    if (u && localStorage.getItem('bc_tok')) {
+      location.href = u.isAdmin ? '/admin.html' : '/order.html';
+    }
+    return;
+  }
   if (st && st.needSetup) {
     if (st.setupLocked) {
       // locked deployment: admin must be provisioned directly in the datastore

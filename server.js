@@ -12,7 +12,7 @@ const path = require('path');
 const os = require('os');
 
 const shared = require('./shared-api.js');
-const { api, setSave, setSetupLocked, hydrate } = shared;
+const { api, setSave, setSetupLocked, setEnv, hydrate } = shared;
 
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
@@ -29,8 +29,14 @@ const SUPA_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPA_KEY = process.env.SUPABASE_KEY || '';
 const SUPA_ON = !!(SUPA_URL && SUPA_KEY);
 
-// Supabase-backed -> admin must be provisioned in Supabase, not via the web
+// Supabase-backed -> admin must be provisioned via Supabase Authentication, not via the web
 setSetupLocked(SUPA_ON);
+
+// expose the env to the shared API (auth resolution / Supabase admin calls)
+setEnv({
+  SUPABASE_URL: SUPA_URL,
+  SUPABASE_KEY: SUPA_KEY,
+});
 
 let saveTimer = null;
 let saving = false;        // a Supabase push is in flight
@@ -151,7 +157,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (!handler) return json(res, 404, { error: 'Not found' });
-    const user = shared.findCoordinatorByAuth(req);
+    const user = await shared.resolveUser({
+      headers: {
+        'x-user': req.headers['x-user'] || '',
+        'authorization': req.headers['authorization'] || '',
+      },
+    });
     const body = req.method === 'POST' ? await readBody(req) : {};
     try {
       const out = await api[handler](body, user, url, id);

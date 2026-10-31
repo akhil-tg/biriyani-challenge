@@ -15,8 +15,99 @@ let setupLocked = false;
 
 function setSave(fn) { save = fn; }
 // When true, POST /setup and POST /seed-demo refuse web-based admin creation —
-// the admin must be provisioned directly in the datastore (Supabase).
+// the admin is provisioned via Supabase Authentication instead.
 function setSetupLocked(v) { setupLocked = !!v; }
+
+/* ---- Supabase environment (set by each host: worker env vars / process.env) ---- */
+let ENV = {};
+function setEnv(e) { ENV = e || {}; }
+
+function supaHeaders(extra) {
+  return Object.assign({
+    'apikey': ENV.SUPABASE_KEY || '',
+    'Authorization': 'Bearer ' + (ENV.SUPABASE_KEY || ''),
+    'Content-Type': 'application/json',
+  }, extra || {});
+}
+
+function b64urlDecode(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return atob(s);
+}
+
+/* cache of validated Supabase auth tokens (token -> {id,email,name,exp}) */
+const tokenCache = new Map();
+
+async function fetchAuthUser(token) {
+  const base = (ENV.SUPABASE_URL || '').replace(/\/+$/, '');
+  const res = await fetch(base + '/auth/v1/user', {
+    headers: { 'apikey': ENV.SUPABASE_KEY, 'Authorization': 'Bearer ' + token },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/* Validate a Supabase Access JWT: decode payload, check exp, confirm with the
+ * auth server (real signature validation happens there). */
+async function resolveAuthUser(headers) {
+  const auth = String(headers['authorization'] || headers['Authorization'] || '');
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const token = m[1].trim();
+  const cached = tokenCache.get(token);
+  if (cached && (!cached.exp || cached.exp > Date.now() / 1000 + 30)) return cached;
+  let payload = null;
+  try { payload = JSON.parse(b64urlDecode(token.split('.')[1])); } catch { return null; }
+  if (!payload || (payload.exp && payload.exp < Date.now() / 1000)) return null;
+  const u = await fetchAuthUser(token);
+  if (!u || !u.id) return null;
+  const info = {
+    id: u.id,
+    email: (u.email || '').toLowerCase(),
+    name: (u.user_metadata && u.user_metadata.name) || (u.email || '').split('@')[0],
+    exp: payload.exp || 0,
+  };
+  tokenCache.set(token, info);
+  if (tokenCache.size > 200) { const it = tokenCache.keys(); for (let i = 0; i < 100; i++) tokenCache.delete(it.next().value); }
+  return info;
+}
+
+/* Find (or auto-create) the coordinator profile that belongs to this
+ * authenticated user. The FIRST profile ever provisioned on the deployment
+ * automatically becomes the Admin — that is how dashboard-created accounts
+ * are claimed. */
+function coordinatorForAuthUser(userId, email, name) {
+  let c = db.coordinators.find(x => x.authUid === userId);
+  if (c) return c.active ? c : null; // disabled profiles cannot log in
+  const anyAdmin = db.coordinators.some(x => x.active && x.isAdmin);
+  const maxCoordId = db.coordinators.reduce((mm, x) => Math.max(mm, x.id || 0), 0);
+  c = {
+    id: maxCoordId + 1,
+    name: name || (email || 'user').split('@')[0],
+    email: email || '',
+    authUid: userId,
+    isAdmin: !anyAdmin,
+    active: true,
+    createdAt: now(),
+  };
+  db.coordinators.push(c);
+  save();
+  return c;
+}
+
+/* Who is making this request?
+ *   Supabase deployments (setupLocked): Authorization: Bearer <auth JWT> only
+ *   file deployments:                   legacy X-User id from the PIN login */
+async function resolveUser(request) {
+  const h = request.headers || {};
+  if (ENV.SUPABASE_URL && ENV.SUPABASE_KEY) {
+    const au = await resolveAuthUser(h);
+    if (au) return coordinatorForAuthUser(au.id, au.email, au.name);
+    if (setupLocked) return null; // locked deployments don't trust the legacy header
+  }
+  return findCoordinatorByAuth(request);
+}
 
 /* Replace db contents in place so existing references stay valid. */
 function hydrate(data) {
@@ -36,7 +127,7 @@ const now = () => new Date().toISOString();
 const pad = (n, w) => String(n).padStart(w, '0');
 
 function publicUser(c) {
-  return c ? { id: c.id, name: c.name, isAdmin: !!c.isAdmin, active: !!c.active } : null;
+  return c ? { id: c.id, name: c.name, email: c.email || undefined, isAdmin: !!c.isAdmin, active: !!c.active } : null;
 }
 function findCoordinatorByAuth(req) {
   const uid = parseInt(req.headers['x-user'], 10) || null;
@@ -74,6 +165,9 @@ api['POST /setup'] = b => {
 };
 
 api['POST /login'] = b => {
+  if (setupLocked && ENV.SUPABASE_URL) {
+    return { error: 'This deployment uses email + password login (Supabase Authentication).' };
+  }
   const name = (b.name || '').trim().toLowerCase();
   const pin = (b.pin || '').trim();
   const c = db.coordinators.find(
@@ -87,24 +181,94 @@ api['GET /coordinators'] = (b, user) => {
   return { coordinators: db.coordinators.filter(c => c.active).map(publicUser) };
 };
 
-api['POST /coordinators'] = (b, user) => {
+api['POST /coordinators'] = async (b, user) => {
   if (!user || !user.isAdmin) return { error: 'Admin only' };
   const name = (b.name || '').trim();
-  const pin = (b.pin || '').trim();
-  if (!name || !pin) return { error: 'Name and PIN required' };
+  if (!name) return { error: 'Name required' };
   if (db.coordinators.some(c => c.active && c.name.toLowerCase() === name.toLowerCase()))
     return { error: 'Name already exists' };
   const maxCoordId = db.coordinators.reduce((m, x) => Math.max(m, x.id || 0), 0);
+
+  /* Supabase deployment: create a real auth account (email + password) */
+  if (setupLocked && ENV.SUPABASE_URL && ENV.SUPABASE_KEY) {
+    const email = (b.email || '').trim().toLowerCase();
+    const password = String(b.password || '');
+    if (!/.+@.+\..+/.test(email)) return { error: 'Valid email required' };
+    if (password.length < 6) return { error: 'Password must be at least 6 characters' };
+    const res = await fetch((ENV.SUPABASE_URL).replace(/\/+$/, '') + '/auth/v1/admin/users', {
+      method: 'POST',
+      headers: supaHeaders(),
+      body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { name } }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: (body && (body.msg || body.message || body.error_description)) || ('Supabase auth error ' + res.status) };
+    const uid = body.id;
+    let c = db.coordinators.find(x => x.authUid === uid);
+    if (c) { c.name = name; c.active = true; }
+    else {
+      c = { id: maxCoordId + 1, name, email, authUid: uid, isAdmin: !!b.isAdmin, active: true, createdAt: now() };
+      db.coordinators.push(c);
+    }
+    save();
+    return { ok: true, coordinator: publicUser(c) };
+  }
+
+  /* legacy file deployment: PIN-based coordinator */
+  const pin = (b.pin || '').trim();
+  if (!pin) return { error: 'PIN required' };
   const c = { id: maxCoordId + 1, name, pin, isAdmin: !!b.isAdmin, active: true, createdAt: now() };
   db.coordinators.push(c); save();
   return { ok: true, coordinator: publicUser(c) };
 };
 
-api['POST /coordinators/remove'] = (b, user) => {
+api['POST /coordinators/remove'] = async (b, user) => {
   if (!user || !user.isAdmin) return { error: 'Admin only' };
   const c = db.coordinators.find(x => x.id === b.id);
-  if (c) { c.active = false; save(); }
+  if (c) {
+    // Supabase deployment: delete their auth account too, so they can't log in
+    if (c.authUid && ENV.SUPABASE_URL && ENV.SUPABASE_KEY) {
+      try {
+        await fetch((ENV.SUPABASE_URL).replace(/\/+$/, '') + '/auth/v1/admin/users/' + c.authUid, {
+          method: 'DELETE',
+          headers: supaHeaders(),
+        });
+      } catch (e) { /* deproceed with the profile removal regardless */ }
+    }
+    c.active = false; save();
+  }
   return { ok: true };
+};
+
+/* current authenticated session -> profile (also triggers auto-provisioning) */
+api['GET /me'] = (b, user) => (user ? { user: publicUser(user) } : { error: 'Login required' });
+
+/* Supabase auth passthrough (so the public frontend never needs an anon key) */
+api['POST /auth/login'] = async b => {
+  if (!ENV.SUPABASE_URL || !ENV.SUPABASE_KEY) return { error: 'Auth backend not configured' };
+  const email = (b.email || '').trim().toLowerCase();
+  const password = String(b.password || '');
+  if (!email || !password) return { error: 'Email and password required' };
+  const res = await fetch((ENV.SUPABASE_URL).replace(/\/+$/, '') + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: supaHeaders(),
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: (body.error_description || body.msg || body.message || 'Login failed') };
+  return { ok: true, access_token: body.access_token, refresh_token: body.refresh_token, expires_at: body.expires_at };
+};
+
+api['POST /auth/refresh'] = async b => {
+  if (!ENV.SUPABASE_URL || !ENV.SUPABASE_KEY) return { error: 'Auth backend not configured' };
+  if (!b.refresh_token) return { error: 'Refresh token required' };
+  const res = await fetch((ENV.SUPABASE_URL).replace(/\/+$/, '') + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: supaHeaders(),
+    body: JSON.stringify({ refresh_token: b.refresh_token }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: (body.error_description || body.msg || body.message || 'Session expired') };
+  return { ok: true, access_token: body.access_token, refresh_token: body.refresh_token, expires_at: body.expires_at };
 };
 
 api['GET /items'] = () => ({ items: db.items.filter(i => i.active) });
@@ -350,4 +514,7 @@ api['POST /seed-demo'] = (b, user) => {
   return { ok: true };
 };
 
-module.exports = { api, setSave, setSetupLocked, hydrate, getDb: () => db, countersEmpty: defaultCounters, findCoordinatorByAuth };
+module.exports = {
+  api, setSave, setSetupLocked, setEnv, hydrate, getDb: () => db,
+  countersEmpty: defaultCounters, findCoordinatorByAuth, resolveUser,
+};

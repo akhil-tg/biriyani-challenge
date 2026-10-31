@@ -11,7 +11,7 @@
  */
 import shared from './shared-api.js';
 
-const { api, setSave, setSetupLocked, hydrate, getDb } = shared;
+const { api, setSave, setSetupLocked, setEnv, hydrate, getDb } = shared;
 
 // Cloudflare deployments are always Supabase-backed -> admin comes from Supabase only
 setSetupLocked(true);
@@ -90,6 +90,7 @@ async function cleanUrl(request, env, url) {
 
 export default {
   async fetch(request, env, ctx) {
+    setEnv(env); // per-request, rooms the worker's secrets into the shared API
     const url = new URL(request.url);
 
     if (!url.pathname.startsWith('/api/')) {
@@ -108,8 +109,11 @@ export default {
         await loadFromSupa(env); // writes always see fresh data
       }
 
-      const user = shared.findCoordinatorByAuth({
-        headers: { 'x-user': request.headers.get('x-user') || '' },
+      const user = await shared.resolveUser({
+        headers: {
+          'x-user': request.headers.get('x-user') || '',
+          'authorization': request.headers.get('authorization') || '',
+        },
       });
       const body = isWrite ? await readJson(request) : {};
 

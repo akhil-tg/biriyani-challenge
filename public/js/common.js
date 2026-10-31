@@ -5,15 +5,40 @@ const padTok = n => String(n).padStart(3, '0');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function api(path, body, method) {
-  const opt = {
-    method: method || (body !== undefined ? 'POST' : 'GET'),
-    headers: { 'Content-Type': 'application/json', 'X-User': localStorage.getItem('bc_uid') || '' },
+  const tok = localStorage.getItem('bc_tok');
+  const make = t => {
+    const opt = {
+      method: method || (body !== undefined ? 'POST' : 'GET'),
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (t) opt.headers['Authorization'] = 'Bearer ' + t;
+    else opt.headers['X-User'] = localStorage.getItem('bc_uid') || '';
+    if (body !== undefined) opt.body = JSON.stringify(body);
+    return opt;
   };
-  if (body !== undefined) opt.body = JSON.stringify(body);
-  const res = await fetch('/api/' + path, opt);
+  let res = await fetch('/api/' + path, make(tok));
   let out = {};
   try { out = await res.json(); } catch {}
-  if (out && out.error === 'Login required') logout(true);
+  if (out && out.error === 'Login required') {
+    // Supabase mode: session may have expired — refresh once and retry
+    if (tok && localStorage.getItem('bc_rt')) {
+      const rr = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: localStorage.getItem('bc_rt') }),
+      });
+      const rj = await rr.json().catch(() => ({}));
+      if (rj && rj.access_token) {
+        localStorage.setItem('bc_tok', rj.access_token);
+        if (rj.refresh_token) localStorage.setItem('bc_rt', rj.refresh_token);
+        res = await fetch('/api/' + path, make(rj.access_token));
+        out = {};
+        try { out = await res.json(); } catch {}
+        if (!(out && out.error)) return out;
+      }
+    }
+    logout(true);
+  }
   return out;
 }
 
@@ -21,6 +46,8 @@ function logout(quiet) {
   if (!quiet && !confirm('Log out?')) return;
   localStorage.removeItem('bc_uid');
   localStorage.removeItem('bc_user');
+  localStorage.removeItem('bc_tok');
+  localStorage.removeItem('bc_rt');
   location.href = '/index.html';
 }
 

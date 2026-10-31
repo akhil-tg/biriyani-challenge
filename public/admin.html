@@ -45,7 +45,13 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <div id="tab-coords" style="display:none">
   <div class="card">
     <div class="field"><label>Name</label><input id="ncName" autocapitalize="none"></div>
-    <div class="field"><label>4-digit PIN</label><input id="ncPin" inputmode="numeric" maxlength="4"></div>
+    <div id="ncLegacyFields">
+      <div class="field"><label>4-digit PIN</label><input id="ncPin" inputmode="numeric" maxlength="4"></div>
+    </div>
+    <div id="ncAuthFields" style="display:none">
+      <div class="field"><label>Email (their login)</label><input id="ncEmail" type="email" autocapitalize="none"></div>
+      <div class="field"><label>Starting password (6+ characters)</label><input id="ncPass" type="text" autocomplete="off"></div>
+    </div>
     <label style="font-size:13px"><input type="checkbox" id="ncAdmin" style="width:auto;margin-right:6px"> Make this coordinator an <b>Admin</b></label>
     <button style="width:100%;margin-top:10px" onclick="addCoord()">+ Add coordinator</button>
   </div>
@@ -76,6 +82,16 @@ if (user) {
   $('#top').innerHTML = topbar(user, 'Admin Panel ⚙️');
   const bnav = document.querySelector('.bottomnav');
   if (bnav) bnav.outerHTML = coordNav('admin');
+}
+
+// which login mode are we in? (Supabase auth vs legacy PIN)
+const authMode = !!(await (async () => {
+  const st = await api('status');
+  return st && st.setupLocked;
+})());
+if (authMode) {
+  $('#ncAuthFields').style.display = 'block';
+  $('#ncLegacyFields').style.display = 'none';
 }
 
 let coords = [], items = [], orders = [];
@@ -123,10 +139,14 @@ async function refresh() {
 }
 
 async function addCoord() {
-  const r = await api('coordinators', { name: $('#ncName').value, pin: $('#ncPin').value, isAdmin: $('#ncAdmin').checked });
+  const payload = authMode
+    ? { name: $('#ncName').value, email: $('#ncEmail').value, password: $('#ncPass').value, isAdmin: $('#ncAdmin').checked }
+    : { name: $('#ncName').value, pin: $('#ncPin').value, isAdmin: $('#ncAdmin').checked };
+  const r = await api('coordinators', payload);
   if (r.error) return alert(r.error);
-  toast('✅ ' + r.coordinator.name + ' added (PIN: ' + $('#ncPin').value + ')');
-  $('#ncName').value = $('#ncPin').value = ''; $('#ncAdmin').checked = false;
+  toast('✅ ' + r.coordinator.name + ' added' + (authMode ? ' — they log in with that email + password' : ' (PIN: ' + $('#ncPin').value + ')'));
+  $('#ncName').value = $('#ncPin').value = $('#ncEmail').value = $('#ncPass').value = '';
+  $('#ncAdmin').checked = false;
   refresh();
 }
 async function removeCoord(id, name) {
