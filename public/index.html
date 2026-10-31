@@ -99,6 +99,7 @@ async function doAuthLogin() {
     // dashboard; the first login claims them. Everyone logs in with email.
     $('#setupBox').style.display = 'none';
     $('#authLogin').style.display = 'block';
+    $('#pinLogin').style.display = 'none';
     $('#loginBox').style.display = 'block';
     const u = getUser();
     if (u && localStorage.getItem('bc_tok')) {
