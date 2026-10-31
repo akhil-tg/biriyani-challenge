@@ -14,26 +14,82 @@ const PUBLIC = path.join(ROOT, 'public');
 const DATA_DIR = path.join(ROOT, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 
-/* ---------------- storage ---------------- */
-let db = { coordinators: [], items: [], orders: [], counters: { order: 0, token: 0 } };
-let saveTimer = null;
+/* ---------------- storage ----------------
+ * Two modes:
+ *  - SUPABASE_URL + SUPABASE_KEY env set  -> load/save the whole dataset as one
+ *    JSON blob in the Supabase table `app_state` (durable, survives restarts).
+ *  - otherwise -> classic data/db.json file (local laptop use).
+ */
+const SUPA_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPA_KEY = process.env.SUPABASE_KEY || '';
+const SUPA_ON = !!(SUPA_URL && SUPA_KEY);
 
-function save() {
-  // debounce writes so bursts of orders don't thrash the disk
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
+const defaultDb = () => ({ coordinators: [], items: [], orders: [], counters: { order: 0, token: 0 } });
+
+let db = defaultDb();
+let saveTimer = null;
+let saving = false;        // a Supabase push is in flight
+let dirtyAgain = false;    // data changed while a push was running
+
+async function flushSave() {
+  if (SUPA_ON) {
+    if (saving) { dirtyAgain = true; return; }
+    saving = true;
+    try {
+      const res = await fetch(SUPA_URL + '/rest/v1/app_state', {
+        method: 'POST', // upsert thanks to merge-duplicates
+        headers: {
+          'apikey': SUPA_KEY,
+          'Authorization': 'Bearer ' + SUPA_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({ id: 1, data: db }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('Supabase save failed (' + res.status + '): ' + text.slice(0, 300));
+      }
+    } catch (e) {
+      console.error('Supabase save error: ' + e.message);
+    }
+    saving = false;
+    if (dirtyAgain) { dirtyAgain = false; await flushSave(); }
+  } else {
+    // debounce writes so bursts of orders don't thrash the disk
     const tmp = DATA_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(db, null, 1));
     fs.renameSync(tmp, DATA_FILE);
-  }, 200);
+  }
 }
 
-function load() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (fs.existsSync(DATA_FILE)) {
-    try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) {
-      console.error('Could not parse db.json, starting fresh:', e.message);
+function save() {
+  // debounce writes so bursts of orders don't thrash the disk (file) / the API (Supabase)
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => { saveTimer = null; flushSave(); }, 200);
+}
+
+async function load() {
+  if (SUPA_ON) {
+    console.log('Storage: Supabase (' + SUPA_URL + ')');
+    try {
+      const res = await fetch(SUPA_URL + '/rest/v1/app_state?id=eq.1&select=data', {
+        headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
+      });
+      if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
+      const rows = await res.json();
+      if (rows.length && rows[0].data) db = rows[0].data;
+      else console.log('Supabase: app_state is empty, starting fresh');
+    } catch (e) {
+      console.error('Supabase load FAILED, using empty data. Check the app_state table / keys: ' + e.message);
+    }
+  } else {
+    console.log('Storage: local file ' + DATA_FILE);
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(DATA_FILE)) {
+      try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) {
+        console.error('Could not parse db.json, starting fresh:', e.message);
+      }
     }
   }
   db.coordinators = db.coordinators || [];
@@ -41,7 +97,6 @@ function load() {
   db.orders = db.orders || [];
   db.counters = db.counters || { order: 0, token: 0 };
 }
-load();
 
 /* ---------------- helpers ---------------- */
 const now = () => new Date().toISOString();
@@ -437,18 +492,21 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log('==============================================');
-  console.log('  Biriyani Challenge — Order Tracker running!');
-  console.log('  On this laptop :  http://localhost:' + PORT);
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        console.log('  On phones      :  http://' + net.address + ':' + PORT);
+(async () => {
+  await load();
+  server.listen(PORT, () => {
+    console.log('==============================================');
+    console.log('  Biriyani Challenge — Order Tracker running!');
+    console.log('  On this laptop :  http://localhost:' + PORT);
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log('  On phones      :  http://' + net.address + ':' + PORT);
+        }
       }
     }
-  }
-  console.log('==============================================');
-  console.log('First time? Open the app in your browser - it will ask you to create the Admin, or you can click "Load demo data" to try it out.');
-});
+    console.log('==============================================');
+    console.log('First time? Open the app in your browser - it will ask you to create the Admin, or you can click "Load demo data" to try it out.');
+  });
+})();
