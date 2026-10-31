@@ -96,6 +96,8 @@ function coordinatorForAuthUser(userId, email, name) {
   return c;
 }
 
+const restDb = require('./rest-api.js');
+
 /* Who is making this request?
  *   Supabase deployments (setupLocked): Authorization: Bearer <auth JWT> only
  *   file deployments:                   legacy X-User id from the PIN login */
@@ -103,7 +105,13 @@ async function resolveUser(request) {
   const h = request.headers || {};
   if (ENV.SUPABASE_URL && ENV.SUPABASE_KEY) {
     const au = await resolveAuthUser(h);
-    if (au) return coordinatorForAuthUser(au.id, au.email, au.name);
+    if (au) {
+      if (setupLocked) {
+        if (!restDb.ready()) restDb.initSupa(ENV);
+        return await restDb.resolveCoordinator(au);
+      }
+      return coordinatorForAuthUser(au.id, au.email, au.name);
+    }
     if (setupLocked) return null; // locked deployments don't trust the legacy header
   }
   return findCoordinatorByAuth(request);
@@ -515,6 +523,7 @@ api['POST /seed-demo'] = (b, user) => {
 };
 
 module.exports = {
-  api, setSave, setSetupLocked, setEnv, hydrate, getDb: () => db,
+  api, restApi: restDb.restApi, setSave, setSetupLocked, setEnv, hydrate, getDb: () => db,
   countersEmpty: defaultCounters, findCoordinatorByAuth, resolveUser,
+  initRest: () => { if (ENV.SUPABASE_URL && ENV.SUPABASE_KEY && !restDb.ready()) restDb.initSupa(ENV); },
 };

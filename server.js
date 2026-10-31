@@ -164,8 +164,11 @@ const server = http.createServer(async (req, res) => {
       },
     });
     const body = req.method === 'POST' ? await readBody(req) : {};
+    // Supabase deployments route to the normalized-table handlers, legacy blob
+    // handlers stay for file mode.
+    const target = (SUPA_ON ? shared.restApi[handler] : null) || shared.api[handler];
     try {
-      const out = await api[handler](body, user, url, id);
+      const out = await target(body, user, url, id);
       json(res, 200, out);
     } catch (err) {
       console.error('API error on ' + route + ':', err);

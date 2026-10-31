@@ -91,6 +91,7 @@ async function cleanUrl(request, env, url) {
 export default {
   async fetch(request, env, ctx) {
     setEnv(env); // per-request, rooms the worker's secrets into the shared API
+    shared.initRest(); // normalized-table layer must be ready for every route
     const url = new URL(request.url);
 
     if (!url.pathname.startsWith('/api/')) {
@@ -104,9 +105,11 @@ export default {
 
     try {
       const isWrite = request.method === 'POST';
+      const h = shared.restApi[match.key] || shared.api[match.key];
+      const useRest = !!shared.restApi[match.key];
 
-      if (isWrite || (Date.now() - lastLoad) > READ_CACHE_MS) {
-        await loadFromSupa(env); // writes always see fresh data
+      if (!useRest && (isWrite || (Date.now() - lastLoad) > READ_CACHE_MS)) {
+        await loadFromSupa(env); // legacy blob mode: writes always see fresh data
       }
 
       const user = await shared.resolveUser({
@@ -117,7 +120,9 @@ export default {
       });
       const body = isWrite ? await readJson(request) : {};
 
-      const out = await api[match.key](body, user, url, match.id);
+      // REST deployments (locked) go straight to the normalized tables;
+      // the legacy blob handlers remain only for file deployments.
+      const out = await h(body, user, url, match.id);
 
       if (isWrite) {
         await saveToSupa(env); // persist BEFORE the response goes out
