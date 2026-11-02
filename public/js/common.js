@@ -12,7 +12,6 @@ async function api(path, body, method) {
       headers: { 'Content-Type': 'application/json' },
     };
     if (t) opt.headers['Authorization'] = 'Bearer ' + t;
-    else opt.headers['X-User'] = localStorage.getItem('bc_uid') || '';
     if (body !== undefined) opt.body = JSON.stringify(body);
     return opt;
   };
@@ -40,6 +39,43 @@ async function api(path, body, method) {
     logout(true);
   }
   return out;
+}
+
+/* debounce: fires fn ms after the last call */
+function debounce(fn, ms) {
+  let h;
+  return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); };
+}
+
+/* paint HTML into an element only if it actually changed (prevents flicker/scroll jumps) */
+function paintList(el, html) {
+  if (el._lastHtml === html) return false;
+  el._lastHtml = html;
+  el.innerHTML = html;
+  return true;
+}
+
+/* visibility-aware poll: pauses when the tab is hidden, refreshes on return */
+function poll(fn, ms) {
+  let h = null;
+  const start = () => { if (!h) h = setInterval(fn, ms); };
+  const stop = () => { clearInterval(h); h = null; };
+  if (document.hidden) stop(); else start();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop();
+    else { fn(); start(); }
+  });
+  return { stop, start };
+}
+
+/* wire a debounced search box (replaces oninput="render()" attributes) */
+function bindSearch(sel, renderFn) {
+  const el = document.querySelector(sel);
+  if (el && el.dataset.searchBound !== '1') {
+    el.dataset.searchBound = '1';
+    el.addEventListener('input', debounce(renderFn, 200));
+  }
+  return el;
 }
 
 function logout(quiet) {
@@ -71,12 +107,12 @@ function toast(msg, ms) {
 }
 
 function topbar(user, title) {
-  const roleBadge = user && user.isAdmin ? '<span class="badge" style="background:var(--saffron);color:#fff;margin-left:4px;font-size:10.5px">ADMIN</span>' : '';
-  return `<div class="topbar">
-    <h1 style="flex:1">${esc(title)}</h1>
+  const roleBadge = user && user.isAdmin ? '<span class="badge" style="background:var(--saffron);color:#fff;font-size:10.5px">ADMIN</span>' : '';
+  return `<header class="topbar">
+    <h1>${esc(title)}</h1>
     <span class="who">${esc(user.name)}${roleBadge}</span>
     <button class="logout" onclick="logout()">Logout</button>
-  </div>`;
+  </header>`;
 }
 
 function coordNav(active) {

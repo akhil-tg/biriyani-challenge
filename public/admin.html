@@ -10,21 +10,15 @@
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
 </script>
 </head>
-<body style="background:#fdf6ec">
+<body>
 <div id="top"></div>
 
 <!-- admin login (shown when not logged in as an admin) -->
-<div id="adminLogin" class="card" style="max-width:360px;margin:30px auto;display:none">
+<div id="adminLogin" class="card narrow" hidden>
   <h2 class="center">Admin login 🔐</h2>
-  <div id="alAuth" style="display:none">
-    <div class="field"><label>Email</label><input id="alEmail" type="email" autocapitalize="none" autocomplete="username" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
-    <div class="field"><label>Password</label><input id="alPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
-  </div>
-  <div id="alPin" style="display:none">
-    <div class="field"><label>Your name</label><input id="alName" autocapitalize="none" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
-    <div class="field"><label>4-digit PIN</label><input id="alPinInput" type="password" inputmode="numeric" maxlength="4" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
-  </div>
-  <button style="width:100%;padding:14px" onclick="adminDoLogin()">LOGIN →</button>
+  <div class="field"><label>Email</label><input id="alEmail" type="email" autocapitalize="none" autocomplete="username" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  <div class="field"><label>Password</label><input id="alPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  <button class="btn-block" onclick="adminDoLogin()">LOGIN →</button>
   <p class="muted center" style="margin-top:10px">Admins only · coordinators log in at the home page</p>
 </div>
 
@@ -40,9 +34,9 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
   <div class="stats">
     <div class="stat"><b id="aTotal">—</b><span>Pre-orders</span></div>
     <div class="stat"><b id="aPresold">—</b><span>Pre-sold value</span></div>
-    <div class="stat"><b id="aDel" style="color:var(--green)">—</b><span>Delivered</span></div>
-    <div class="stat"><b id="aPend" style="color:var(--saffron)">—</b><span>Pending</span></div>
-    <div class="stat"><b id="aCash" style="color:var(--green)">—</b><span>💵 Cash collected</span></div>
+    <div class="stat"><b id="aDel" class="c-green">—</b><span>Delivered</span></div>
+    <div class="stat"><b id="aPend" class="c-saffron">—</b><span>Pending</span></div>
+    <div class="stat"><b id="aCash" class="c-green">—</b><span>💵 Cash collected</span></div>
     <div class="stat"><b id="aOut">—</b><span>Cash expected</span></div>
   </div>
 
@@ -52,65 +46,55 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
   <h2>Cash per person (handover day-end)</h2>
   <div class="card"><div id="cashList"><p class="muted">No cash collected yet.</p></div></div>
 
-  <button onclick="exportCsv()" style="width:100%;margin-top:6px">🧾 Download day-end report (CSV)</button>
-  <a id="csvLink" download="biriyani-report.csv" style="display:none"></a>
+  <button class="btn-block" onclick="exportCsv()">🧾 Download day-end report (CSV)</button>
+  <a id="csvLink" download="biriyani-report.csv" hidden></a>
 </div>
 
 <!-- COORDINATORS -->
-<div id="tab-coords" style="display:none">
+<div id="tab-coords" hidden>
   <div class="card">
     <div class="field"><label>Name</label><input id="ncName" autocapitalize="none"></div>
-    <div id="ncLegacyFields">
-      <div class="field"><label>4-digit PIN</label><input id="ncPin" inputmode="numeric" maxlength="4"></div>
-    </div>
-    <div id="ncAuthFields" style="display:none">
-      <div class="field"><label>Email (their login)</label><input id="ncEmail" type="email" autocapitalize="none"></div>
-      <div class="field"><label>Starting password (6+ characters)</label><input id="ncPass" type="text" autocomplete="off"></div>
-    </div>
-    <label style="font-size:13px"><input type="checkbox" id="ncAdmin" style="width:auto;margin-right:6px"> Make this coordinator an <b>Admin</b></label>
-    <button style="width:100%;margin-top:10px" onclick="addCoord()">+ Add coordinator</button>
+    <div class="field"><label>Email (their login)</label><input id="ncEmail" type="email" autocapitalize="none"></div>
+    <div class="field"><label>Starting password (6+ characters)</label><input id="ncPass" type="text" autocomplete="off"></div>
+    <label class="chk"><input type="checkbox" id="ncAdmin"> Make this coordinator an <b>Admin</b></label>
+    <button class="btn-block" onclick="addCoord()">+ Add coordinator</button>
   </div>
   <div id="coordList"></div>
 </div>
 
 <!-- MENU -->
-<div id="tab-menu" style="display:none">
+<div id="tab-menu" hidden>
   <div class="card">
     <div class="field"><label>Item name</label><input id="niName"></div>
     <div class="field"><label>Price ₹</label><input id="niPrice" type="number" inputmode="numeric" min="0"></div>
-    <button style="width:100%" onclick="addItem()">+ Add menu item</button>
+    <button class="btn-block" onclick="addItem()">+ Add menu item</button>
   </div>
   <div id="menuList"></div>
 </div>
 
 <!-- ALL ORDERS -->
-<div id="tab-orders" style="display:none">
-  <input id="search" placeholder="🔍 token / name / mobile / place…" oninput="renderOrders()">
+<div id="tab-orders" hidden>
+  <input id="search" placeholder="🔍 token / name / mobile / place…" autocomplete="off">
   <div id="orderList"></div>
 </div>
 
 <div class="bottomnav" style="display:none"></div>
 <script src="/js/common.js"></script>
 <script>
-let user = null, authMode = false;
+let user = null;
+
+bindSearch('#search', renderOrders);
 
 (async function adminInit() {
-  const st = await api('status');
-  authMode = !!(st && st.setupLocked);
-  $('#ncAuthFields').style.display = authMode ? 'block' : 'none';
-  $('#ncLegacyFields').style.display = authMode ? 'none' : 'block';
-  $('#alAuth').style.display = authMode ? 'block' : 'none';
-  $('#alPin').style.display = authMode ? 'none' : 'block';
-
   const u = getUser();
-  const hasSession = authMode ? !!localStorage.getItem('bc_tok') : !!localStorage.getItem('bc_uid');
+  const hasSession = !!localStorage.getItem('bc_tok');
   if (u && u.isAdmin && hasSession) {
     user = u;
     $('#top').innerHTML = topbar(user, 'Admin Panel ⚙️');
     const bnav = document.querySelector('.bottomnav');
     if (bnav) bnav.outerHTML = coordNav('admin');
     refresh();
-    setInterval(refresh, 15000);
+    poll(refresh, 15000);
   } else {
     // not an admin session -> show only the admin login card
     document.querySelector('.chips').style.display = 'none';
@@ -120,27 +104,13 @@ let user = null, authMode = false;
 })();
 
 async function adminDoLogin() {
-  if ($('#alAuth').style.display !== 'none') {
-    const email = ($('#alEmail').value || '').trim();
-    const pass = $('#alPass').value || '';
-    if (!email || !pass) return alert('Email and password required');
-    const out = await api('auth/login', { email, password: pass });
-    if (!out.ok) return alert(out.error || 'Login failed');
-    localStorage.setItem('bc_tok', out.access_token);
-    if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
-  } else {
-    const name = ($('#alName').value || '').trim();
-    const pin = ($('#alPinInput').value || '').trim();
-    if (!name || !pin) return alert('Name and PIN required');
-    const out = await api('login', { name, pin });
-    if (!out.ok) return alert(out.error || 'Login failed');
-    if (!out.user.isAdmin) {
-      return alert('Only admins can log in here. Coordinators use the home page.');
-    }
-    localStorage.setItem('bc_uid', out.user.id);
-    localStorage.setItem('bc_user', JSON.stringify(out.user));
-    location.reload();
-  }
+  const email = ($('#alEmail').value || '').trim();
+  const pass = $('#alPass').value || '';
+  if (!email || !pass) return alert('Email and password required');
+  const out = await api('auth/login', { email, password: pass });
+  if (!out.ok) return alert(out.error || 'Login failed');
+  localStorage.setItem('bc_tok', out.access_token);
+  if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
   const me = await api('me');
   if (!me.user) {
     logout(true);
@@ -179,35 +149,33 @@ async function refresh() {
 
   $('#tblCoords').querySelector('tbody').innerHTML = (s1.byCoord || []).map(c => `
     <tr><td>${esc(c.name)}${c.isAdmin ? ' ⭐' : ''}</td><td>${c.orders}</td><td>${money(c.revenue)}</td>
-    <td><span style="color:var(--green)">${c.delivered}</span>/<span style="color:var(--saffron)">${c.pending}</span></td></tr>`).join('');
+    <td><span class="c-green">${c.delivered}</span>/<span class="c-saffron">${c.pending}</span></td></tr>`).join('');
 
   const cashE = Object.entries(s1.cashPerDeliverer || {});
-  $('#cashList').innerHTML = cashE.length ? cashE.map(([n, v]) =>
-    `<div class="row" style="padding:6px 0"><b style="flex:1">${esc(n)}</b><b style="color:var(--green)">${money(v)}</b></div>`).join('')
-    : '<p class="muted">No cash collected yet.</p>';
+  paintList($('#cashList'), cashE.length ? cashE.map(([n, v]) =>
+    `<div class="row py"><b class="f1">${esc(n)}</b><b class="c-green">${money(v)}</b></div>`).join('')
+    : '<p class="muted">No cash collected yet.</p>');
 
-  $('#coordList').innerHTML = coords.map(c => `
-    <div class="card row"><b style="flex:1">${esc(c.name)}${c.isAdmin ? ' ⭐admin' : ''}</b>
-      <button class="ghost small" onclick="removeCoord(${c.id}, '${esc(c.name)}')">Remove</button></div>`).join('') || '<p class="muted">No coordinators yet.</p>';
+  paintList($('#coordList'), coords.map(c => `
+    <div class="card row"><b class="f1">${esc(c.name)}${c.isAdmin ? ' ⭐admin' : ''}</b>
+      <button class="ghost small" onclick="removeCoord(${c.id}, '${esc(c.name)}')">Remove</button></div>`).join('') || '<p class="muted">No coordinators yet.</p>');
 
-  $('#menuList').innerHTML = items.map(i => `
+  paintList($('#menuList'), items.map(i => `
     <div class="card row">
-      <input style="flex:1" value="${esc(i.name)}" id="mn${i.id}" onchange="updItem(${i.id})">
-      <input style="width:80px;text-align:center" type="number" value="${i.price}" id="mp${i.id}" onchange="updItem(${i.id})">
+      <input class="f1" value="${esc(i.name)}" id="mn${i.id}" onchange="updItem(${i.id})">
+      <input class="w80" type="number" value="${i.price}" id="mp${i.id}" onchange="updItem(${i.id})">
       <button class="ghost small" onclick="rmItem(${i.id})">✕</button>
-    </div>`).join('') || '<p class="muted">No menu items yet.</p>';
+    </div>`).join('') || '<p class="muted">No menu items yet.</p>');
 
   renderOrders();
 }
 
 async function addCoord() {
-  const payload = authMode
-    ? { name: $('#ncName').value, email: $('#ncEmail').value, password: $('#ncPass').value, isAdmin: $('#ncAdmin').checked }
-    : { name: $('#ncName').value, pin: $('#ncPin').value, isAdmin: $('#ncAdmin').checked };
+  const payload = { name: $('#ncName').value, email: $('#ncEmail').value, password: $('#ncPass').value, isAdmin: $('#ncAdmin').checked };
   const r = await api('coordinators', payload);
   if (r.error) return alert(r.error);
-  toast('✅ ' + r.coordinator.name + ' added' + (authMode ? ' — they log in with that email + password' : ' (PIN: ' + $('#ncPin').value + ')'));
-  $('#ncName').value = $('#ncPin').value = $('#ncEmail').value = $('#ncPass').value = '';
+  toast('✅ ' + r.coordinator.name + ' added — they log in with that email + password');
+  $('#ncName').value = $('#ncEmail').value = $('#ncPass').value = '';
   $('#ncAdmin').checked = false;
   refresh();
 }
@@ -240,8 +208,8 @@ function renderOrders() {
     const c = o.customer || {};
     return ('#' + padTok(o.tokenNo) + ' ' + (c.name || '') + ' ' + (c.phone || '') + ' ' + (c.place || '') + ' ' + (c.address || '')).toLowerCase().includes(oFilterQ);
   });
-  $('#orderList').innerHTML = list.slice(0, 100).map(adminOrderCard).join('') ||
-    '<p class="muted center" style="margin-top:16px">No orders yet.</p>';
+  paintList($('#orderList'), list.slice(0, 100).map(adminOrderCard).join('') ||
+    '<p class="empty">No orders yet.</p>');
 }
 function adminOrderCard(o) {
   const c = o.customer || {};
@@ -249,13 +217,13 @@ function adminOrderCard(o) {
   const collectedStr = o.cashCollected != null ? money(o.cashCollected) : money(o.total);
   return `<div class="card ocard ${o.status}">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}
+      <span class="ocname">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}
       ${c.place || c.address ? '<div class="oaddr">📍 ' + esc(c.place || '') + ' ' + esc(c.address || '') + '</div>' : ''}</span>
       <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 ' + collectedStr : '🟡 Pending'}</span></div>
     <div class="oitems">${items}</div>
     <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · <b>${money(o.total)}</b>${o.deliveredByName ? ' · handover ' + esc(o.deliveredByName) : ''}
       ${o.status === 'pending'
-        ? ` · <button class="linklike" onclick="adminDeliver(${o.id})">mark delivered</button> <button class="linklike" style="color:var(--danger)" onclick="delOrder(${o.id})">delete</button>`
+        ? ` · <button class="linklike" onclick="adminDeliver(${o.id})">mark delivered</button> <button class="linklike danger" onclick="delOrder(${o.id})">delete</button>`
         : ` · <button class="linklike" onclick="fixCash(${o.id}, ${o.cashCollected != null ? o.cashCollected : o.total})">fix cash</button>`}</div>
   </div>`;
 }

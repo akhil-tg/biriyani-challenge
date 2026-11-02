@@ -12,66 +12,25 @@ if ('serviceWorker' in navigator) {
 <title>Biriyani Challenge — Login</title>
 <link rel="stylesheet" href="/css/style.css">
 </head>
-<body style="background:#fdf6ec">
-<div style="text-align:center;margin-top:40px">
-  <div style="font-size:64px">🍛</div>
+<body>
+<div class="hero">
+  <span class="mascot">🍛</span>
   <h1>Biriyani Challenge</h1>
   <p class="muted">Order Tracker</p>
 </div>
 
-<!-- login -->
-<div id="loginBox" class="card" style="max-width:360px;margin:20px auto;display:none">
-  <!-- legacy PIN mode (local file deployments) -->
-  <div id="pinLogin">
-    <div class="field"><label>Your name</label><input id="name" autocapitalize="none" placeholder="e.g. aman"></div>
-    <div class="field"><label>4-digit PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
-    <button style="width:100%;padding:14px" onclick="doLogin()">LOGIN →</button>
-    <p class="muted center" style="margin-top:10px">Coordinators login here</p>
-  </div>
-  <!-- Supabase Authentication mode -->
-  <div id="authLogin" style="display:none">
-    <div class="field"><label>Email</label><input id="lgEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
-    <div class="field"><label>Password</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doAuthLogin()"></div>
-    <button style="width:100%;padding:14px" onclick="doAuthLogin()">LOGIN →</button>
-    <p class="muted center" style="margin-top:10px">Coordinators login here · admins use <b>/admin</b></p>
-  </div>
-</div>
-
-<!-- first-run admin setup -->
-<div id="setupBox" class="card" style="max-width:360px;margin:20px auto;display:none">
-  <h2 class="center">First time setup 👋</h2>
-  <p class="muted center">Create the Admin account to get started.</p>
-  <div class="field"><label>Admin name</label><input id="admName" placeholder="e.g. admin"></div>
-  <div class="field"><label>4-digit PIN</label><input id="admPin" type="password" inputmode="numeric" maxlength="4" placeholder="e.g. 1234" onkeydown="if(event.key==='Enter') doSetup()"></div>
-  <button style="width:100%;padding:14px" onclick="doSetup()">CREATE ADMIN</button>
+<!-- login (Supabase Authentication — email + password) -->
+<div id="loginBox" class="card narrow" hidden>
+  <div class="field"><label>Email</label><input id="lgEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter') doLogin()"></div>
+  <div class="field"><label>Password</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
+  <button class="btn-block" onclick="doLogin()">LOGIN →</button>
+  <p class="muted center" style="margin-top:10px">Coordinators login here · admins use <b>/admin</b></p>
 </div>
 
 <script src="/js/common.js"></script>
 <script>
-async function go(user) {
-  localStorage.setItem('bc_uid', user.id);
-  localStorage.setItem('bc_user', JSON.stringify(user));
-  location.href = user.isAdmin ? '/admin.html' : '/order.html';
-}
+/* Supabase Authentication login (email + password) */
 async function doLogin() {
-  const name = ($('#name').value || '').trim();
-  const pin = ($('#pin').value || '').trim();
-  if (!name || !pin) return alert('Please enter both name and PIN');
-  const out = await api('login', { name, pin });
-  if (!out.ok) return alert(out.error || 'Login failed');
-  if (out.user.isAdmin) return alert('Admins log in via the /admin page, not here.');
-  go(out.user);
-}
-async function doSetup() {
-  const name = ($('#admName').value || '').trim();
-  const pin = ($('#admPin').value || '').trim();
-  if (!name || !/^\d{4}$/.test(pin)) return alert('Name and 4-digit PIN required');
-  const out = await api('setup', { name, pin });
-  if (!out.ok) return alert(out.error || 'Setup failed');
-  go(out.user);
-}
-/* Supabase Authentication login (email + password) — coordinators only */
-async function doAuthLogin() {
   const email = ($('#lgEmail').value || '').trim();
   const pass = $('#lgPass').value || '';
   if (!email || !pass) return alert('Please enter both email and password');
@@ -90,49 +49,15 @@ async function doAuthLogin() {
   }
   localStorage.setItem('bc_uid', me.user.id);
   localStorage.setItem('bc_user', JSON.stringify(me.user));
-  go(me.user);
+  location.href = '/order.html';
 }
-(async () => {
-  const st = await api('status');
-  if (st && st.setupLocked) {
-    // Supabase Authentication deployment: admins are created in the Supabase
-    // dashboard; the first login claims them. Everyone logs in with email.
-    $('#setupBox').style.display = 'none';
-    $('#authLogin').style.display = 'block';
-    $('#pinLogin').style.display = 'none';
-    $('#loginBox').style.display = 'block';
-    const u = getUser();
-    if (u && localStorage.getItem('bc_tok')) {
-      location.href = u.isAdmin ? '/admin.html' : '/order.html';
-    }
+(() => {
+  const u = getUser();
+  if (u && localStorage.getItem('bc_tok')) {
+    location.href = u.isAdmin ? '/admin.html' : '/order.html';
     return;
   }
-  if (st && st.needSetup) {
-    if (st.setupLocked) {
-      // locked deployment: admin must be provisioned directly in the datastore
-      $('#setupBox').innerHTML = '<p class="center">🔒 This deployment is locked</p><p class="muted center">The admin account cannot be created here.<br>It is provisioned directly in Supabase by the owner.</p>';
-    } else {
-      const demo = document.createElement('button');
-      demo.className = 'ghost';
-      demo.style.cssText = 'display:block;margin:12px auto;padding:10px 16px';
-      demo.textContent = '🎓 Load demo data (practice mode)';
-      if (!st.hasData) {
-        demo.onclick = async () => {
-          if (!confirm('Load demo coordinators, menu and sample orders?')) return;
-          const r = await api('seed-demo', {});
-          alert(r.ok ? 'Demo data loaded!\nAdmin login: name "admin", PIN "1234".\nCoordinators: anil / sunil / babu, PIN "1111".' : (r.error || 'Failed'));
-          location.reload();
-        };
-        document.body.appendChild(demo);
-      }
-    }
-    $('#setupBox').style.display = 'block';
-    $('#loginBox').style.display = 'block';
-  } else {
-    $('#loginBox').style.display = 'block';
-    const u = getUser();
-    if (u) location.href = u.isAdmin ? '/admin.html' : '/order.html';
-  }
+  $('#loginBox').hidden = false;
 })();
 </script>
 </body>

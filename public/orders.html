@@ -10,12 +10,12 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 </script>
 <title>All Orders — Biriyani Challenge</title>
 </head>
-<body style="background:#fdf6ec">
+<body>
 <div id="top"></div>
 
 <div class="stats">
   <div class="stat"><b id="sTotal">—</b><span>Total pre-orders</span></div>
-  <div class="stat"><b id="sPending" style="color:var(--saffron)">—</b><span>Pending</span></div>
+  <div class="stat"><b id="sPending" class="c-saffron">—</b><span>Pending</span></div>
 </div>
 
 <div class="coordstrip" id="strip"></div>
@@ -27,8 +27,8 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
   <button class="chip" data-f="delivered">🟢 Delivered</button>
 </div>
 
-<input id="search" placeholder="🔍 Find token / name / mobile / place…" oninput="render()">
-<div id="list"></div>
+<input id="search" placeholder="🔍 Find token / name / mobile / place…" autocomplete="off">
+<div id="list"><p class="empty">⏳ Loading orders…</p></div>
 
 <div class="bottomnav" style="display:none"></div>
 <script src="/js/common.js"></script>
@@ -82,9 +82,10 @@ function render() {
     const hay = ['#' + padTok(o.tokenNo), c.name || '', c.phone || '', c.place || '', c.address || ''].join(' ').toLowerCase();
     return hay.includes(q);
   });
-  $('#list').innerHTML = list.length
+  const listHtml = list.length
     ? list.map(orderCard).join('')
-    : '<p class="muted center" style="margin-top:20px">No orders match ' + (q ? '“' + esc(q) + '”' : 'this filter') + '.</p>';
+    : '<p class="empty">No orders match ' + (q ? '“' + esc(q) + '”' : 'this filter') + '.</p>';
+  paintList($('#list'), listHtml);
 }
 
 function phoneLinks(phone) {
@@ -92,8 +93,8 @@ function phoneLinks(phone) {
   const raw = String(phone).trim();
   const digits = raw.replace(/\D/g, '');
   const waNum = digits.length === 10 ? '91' + digits : digits;
-  return ` · <a href="tel:${esc(raw)}" style="color:inherit;text-decoration:underline">📱 ${esc(raw)}</a>` +
-    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" style="text-decoration:none;font-size:13px" title="Chat on WhatsApp">💬</a>` : '');
+  return ` · <a href="tel:${esc(raw)}" class="plink">📱 ${esc(raw)}</a>` +
+    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" class="wabtn" title="Chat on WhatsApp">💬</a>` : '');
 }
 
 function orderCard(o) {
@@ -101,7 +102,7 @@ function orderCard(o) {
   const c = o.customer || {};
   return `<div class="card ocard ${o.status}">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
+      <span class="ocname">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
       <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 Delivered' : '🟡 Pending'}</span></div>
     <div class="oitems">${items}</div>
     ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
@@ -109,8 +110,9 @@ function orderCard(o) {
   </div>`;
 }
 
+bindSearch('#search', render);
 refresh();
-setInterval(refresh, 15000);
+poll(refresh, 15000);
 </script>
 </body>
 </html>

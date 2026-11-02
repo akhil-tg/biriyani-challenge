@@ -2,9 +2,10 @@
   "name": "biriyani-challenge",
   "version": "1.0.0",
   "description": "Biriyani Challenge — zero-dependency order tracker",
-  "main": "server.js",
+  "main": "worker.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "npx wrangler dev",
+    "test": "node scripts/test-battery.js"
   },
   "engines": {
     "node": ">=18"

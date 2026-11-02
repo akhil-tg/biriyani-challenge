@@ -9,13 +9,12 @@
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
 </script>
 <title>Delivery — Biriyani Challenge</title>
-<link rel="stylesheet" href="/css/style.css">
 </head>
-<body style="background:#fdf6ec">
+<body>
 <div id="top"></div>
 
 <h2>Find order</h2>
-<input id="search" placeholder="🔍 token / name / mobile / place…" oninput="render()" autocomplete="off">
+<input id="search" placeholder="🔍 token / name / mobile / place…" autocomplete="off">
 
 <div class="chips">
   <button class="chip on" data-s="pending" onclick="setScope(this)">🟡 Pending</button>
@@ -27,7 +26,7 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <h2 style="margin-top:16px">My cash handling today 💰</h2>
 <div class="stats">
   <div class="stat"><b id="dCount">—</b><span>Delivered by me</span></div>
-  <div class="stat"><b id="dCash" style="color:var(--green)">—</b><span>Cash collected by me</span></div>
+  <div class="stat"><b id="dCash" class="c-green">—</b><span>Cash collected by me</span></div>
 </div>
 
 <div class="bottomnav" style="display:none"></div>
@@ -38,6 +37,8 @@ if (user) {
   $('#top').innerHTML = topbar(user, 'Delivery 🥘');
   document.querySelector('.bottomnav').outerHTML = coordNav('deliver');
 }
+
+bindSearch('#search', render);
 
 let scope = 'pending', allOrders = [], done = {};
 
@@ -77,8 +78,8 @@ function phoneLinks(phone) {
   const raw = String(phone).trim();
   const digits = raw.replace(/\D/g, '');
   const waNum = digits.length === 10 ? '91' + digits : digits;
-  return ` · <a href="tel:${esc(raw)}" style="color:inherit;text-decoration:underline">📱 ${esc(raw)}</a>` +
-    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" style="text-decoration:none;font-size:13px" title="Chat on WhatsApp">💬</a>` : '');
+  return ` · <a href="tel:${esc(raw)}" class="plink">📱 ${esc(raw)}</a>` +
+    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" class="wabtn" title="Chat on WhatsApp">💬</a>` : '');
 }
 
 function render() {
@@ -87,8 +88,8 @@ function render() {
   const activeVal = activeId && activeId.startsWith('cash') ? activeEl.value : null;
 
   const list = find();
-  $('#list').innerHTML = list.length ? list.map(deliverCard).join('') :
-    '<p class="muted center" style="margin-top:16px">' + (scope === 'pending' ? 'No pending orders found.' : 'No delivered orders found.') + '</p>';
+  paintList($('#list'), list.length ? list.map(deliverCard).join('') :
+    '<p class="empty">' + (scope === 'pending' ? 'No pending orders found.' : 'No delivered orders found.') + '</p>');
 
   if (activeId && activeVal != null) {
     const el = document.getElementById(activeId);
@@ -101,11 +102,11 @@ function render() {
 
 function deliverCard(o) {
   const c = o.customer || {};
-  const items = (o.items || []).map(i => `<span class="badge pending" style="margin-right:6px">${esc(i.name)} ×${i.qty}</span>`).join('');
+  const items = (o.items || []).map(i => `<span class="badge pending">${esc(i.name)} ×${i.qty}</span>`).join('');
   if (o.status === 'delivered') {
     return `<div class="card ocard delivered">
       <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-        <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}</span>
+        <span class="ocname">${esc(c.name || 'Walk-in')}</span>
         <span class="badge delivered">🟢 Delivered</span></div>
       <div class="oitems">${items}</div>
       <div class="ometa"><b>${money(o.cashCollected != null ? o.cashCollected : o.total)}</b> collected by ${esc(o.deliveredByName || 'Unknown')} · ${new Date(o.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
@@ -113,14 +114,14 @@ function deliverCard(o) {
   }
   return `<div class="card ocard pending">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
+      <span class="ocname">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
       <span class="badge pending">🟡 Pending</span></div>
     <div class="oitems">${items}</div>
     ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
     <div class="ometa">by ${esc(o.takenByName || 'Unknown')} · <b>${money(o.total)}</b></div>
     <hr class="sep">
     <div class="row">
-      <input id="cash${o.id}" inputmode="numeric" style="flex:1;text-align:center;font-weight:800" value="${o.total}">
+      <input id="cash${o.id}" inputmode="numeric" class="cash-in" value="${o.total}">
       <button onclick="deliver(${o.id}, this)">✅ DELIVERED</button>
     </div>
   </div>`;
@@ -145,7 +146,7 @@ async function deliver(id, btn) {
 }
 
 refresh();
-setInterval(refresh, 15000);
+poll(refresh, 15000);
 </script>
 </body>
 </html>

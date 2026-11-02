@@ -12,7 +12,7 @@ if ('serviceWorker' in navigator) {
 </script>
 <title>New Order — Biriyani Challenge</title>
 </head>
-<body style="background:#fdf6ec">
+<body>
 <div id="top"></div>
 
 <!-- new order form -->
@@ -21,14 +21,14 @@ if ('serviceWorker' in navigator) {
   <div class="field"><label id="lblName">👤 Customer name *</label><input id="cname" autocomplete="off"></div>
   <div class="field"><label>📱 Mobile</label><input id="cphone" type="tel" inputmode="numeric" autocomplete="off"></div>
   <div class="field"><label>📍 Place</label><input id="cplace" autocomplete="off"></div>
-  <div class="field"><label>🏠 Address</label><textarea id="caddress" rows="2" style="width:100%;padding:10px;border:1.5px solid #eadbc8;border-radius:10px;font:inherit"></textarea></div>
+  <div class="field"><label>🏠 Address</label><textarea id="caddress" rows="2"></textarea></div>
 
   <h2>Items</h2>
   <div id="menu" class="card"><p class="muted">Loading menu…</p></div>
 
   <div class="totalbar"><span>TOTAL</span><span class="spacer"></span><span id="total">₹0</span></div>
-  <button id="btnSave" style="width:100%;padding:16px;font-size:16px" onclick="saveOrder()">✅ SAVE ORDER</button>
-  <button class="ghost" style="width:100%;margin-top:8px" onclick="clearForm()">Clear form</button>
+  <button id="btnSave" class="btn-block xl" onclick="saveOrder()">✅ SAVE ORDER</button>
+  <button class="ghost btn-block" style="margin-top:8px" onclick="clearForm()">Clear form</button>
 </div>
 
 <!-- my recent orders -->
@@ -146,10 +146,10 @@ async function saveOrder() {
 }
 
 function flash(html) {
-  let f = $('#flash');
+  const f = $('#flash');
   if (!f) {
     f = document.createElement('div'); f.id = 'flash'; f.className = 'flash';
-    f.innerHTML = '<div class="box"><div class="big">✅</div><div id="fm" style="margin-top:8px"></div><button style="margin-top:14px;padding:8px 22px" onclick="document.getElementById(\'flash\').classList.remove(\'show\')">OK</button></div>';
+    f.innerHTML = '<div class="box"><div class="big">✅</div><div id="fm" style="margin-top:8px"></div><button onclick="document.getElementById(\'flash\').classList.remove(\'show\')">OK</button></div>';
     f.onclick = (e) => { if (e.target === f) f.classList.remove('show'); };
     document.body.appendChild(f);
   }
@@ -167,7 +167,7 @@ async function loadMine() {
     if (tokEl) tokEl.textContent = '(Next: #' + padTok(maxTok + 1) + ')';
   }
   const mine = list.filter(o => o.takenBy === user.id).slice(0, 6);
-  $('#mine').innerHTML = mine.length ? mine.map(o => orderCard(o, false)).join('') : '<p class="muted">No orders yet. Tap + to create the first one!</p>';
+  paintList($('#mine'), mine.length ? mine.map(o => orderCard(o, false)).join('') : '<p class="empty">No orders yet. Tap + to create the first one!</p>');
 }
 
 function orderCard(o, showAddr) {
@@ -175,7 +175,7 @@ function orderCard(o, showAddr) {
   const c = o.customer || {};
   return `<div class="card ocard ${o.status}">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span class="ocname">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
       <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 Delivered' : '🟡 Pending'}</span></div>
     <div class="oitems">${items}</div>
     ${showAddr && (c.place || c.address) ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}

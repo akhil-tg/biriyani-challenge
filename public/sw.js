@@ -1,5 +1,5 @@
 /* Biriyani Challenge — offline cache */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'bc-' + VERSION;
 const CACHE_URLS = [
   '/',
@@ -25,21 +25,28 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const { request } = event;
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return; // let cross-origin pass through
   if (url.pathname.startsWith('/api/')) {
     // API always goes to network (online-first, offline handled by server)
     return;
   }
+  // stale-while-revalidate: serve static files instantly from cache,
+  // then refresh the cache in the background.
   event.respondWith(
-    fetch(request)
-      .then(res => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(request, copy));
-        }
-        return res;
+    caches.open(CACHE).then(cache =>
+      cache.match(request).then(cached => {
+        const network = fetch(request)
+          .then(res => {
+            if (res && res.ok) {
+              cache.put(request, res.clone());
+            }
+            return res;
+          })
+          .catch(() => cached);
+        return cached || network;
       })
-      .catch(() => caches.match(request))
+    )
   );
 });
