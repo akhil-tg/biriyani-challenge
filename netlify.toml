@@ -1,0 +1,12 @@
+# Netlify bridge — serves the static app and proxies API calls to the
+# Cloudflare worker (whose *.workers.dev domain some phone ISPs block).
+[build]
+  publish = "public"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://biriyani-challenge.stgeorge.workers.dev/api/:splat"
+  status = 200
+  force = true
+
+# keep html pretty clean (Netlify handles /order -> order.html natively)

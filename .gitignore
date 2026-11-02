@@ -4,3 +4,5 @@ node_modules/
 Thumbs.db
 .wrangler/
 .dev.vars
+
+.netlify/
