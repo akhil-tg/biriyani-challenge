@@ -278,13 +278,14 @@ restApi['POST /orders/:id/deliver'] = async (b, user, url, id) => {
   if (cur.status === 'delivered') return { error: 'Already delivered' };
   let cash = b.cash == null || b.cash === '' ? cur.total : Number(b.cash);
   if (!(cash >= 0)) cash = cur.total;
-  const rows = await write('orders?id=eq.' + id, 'PATCH', {
+  const rows = await write('orders?id=eq.' + id + '&status=eq.pending', 'PATCH', {
     status: 'delivered',
     cash_collected: Math.round(cash),
     delivered_by: user.id,
     delivered_by_name: user.name,
     delivered_at: now(),
   }, 'return=representation');
+  if (!rows || !rows.length) return { error: 'Order was already delivered or updated by another coordinator' };
   return { ok: true, order: orderRowToObj(rows[0]) };
 };
 

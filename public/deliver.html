@@ -72,10 +72,31 @@ function find() {
   return list.slice(0, 20);
 }
 
+function phoneLinks(phone) {
+  if (!phone) return '';
+  const raw = String(phone).trim();
+  const digits = raw.replace(/\D/g, '');
+  const waNum = digits.length === 10 ? '91' + digits : digits;
+  return ` · <a href="tel:${esc(raw)}" style="color:inherit;text-decoration:underline">📱 ${esc(raw)}</a>` +
+    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" style="text-decoration:none;font-size:13px" title="Chat on WhatsApp">💬</a>` : '');
+}
+
 function render() {
+  const activeEl = document.activeElement;
+  const activeId = (activeEl && activeEl.id) || null;
+  const activeVal = activeId && activeId.startsWith('cash') ? activeEl.value : null;
+
   const list = find();
   $('#list').innerHTML = list.length ? list.map(deliverCard).join('') :
     '<p class="muted center" style="margin-top:16px">' + (scope === 'pending' ? 'No pending orders found.' : 'No delivered orders found.') + '</p>';
+
+  if (activeId && activeVal != null) {
+    const el = document.getElementById(activeId);
+    if (el) {
+      el.value = activeVal;
+      el.focus();
+    }
+  }
 }
 
 function deliverCard(o) {
@@ -92,7 +113,7 @@ function deliverCard(o) {
   }
   return `<div class="card ocard pending">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
       <span class="badge pending">🟡 Pending</span></div>
     <div class="oitems">${items}</div>
     ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
@@ -100,22 +121,27 @@ function deliverCard(o) {
     <hr class="sep">
     <div class="row">
       <input id="cash${o.id}" inputmode="numeric" style="flex:1;text-align:center;font-weight:800" value="${o.total}">
-      <button onclick="deliver(${o.id})">✅ DELIVERED</button>
+      <button onclick="deliver(${o.id}, this)">✅ DELIVERED</button>
     </div>
   </div>`;
 }
 
-async function deliver(id) {
+async function deliver(id, btn) {
   const cashEl = $('#cash' + id);
   const cash = cashEl ? cashEl.value.trim() : '';
   const o = allOrders.find(x => x.id === id);
   const custName = (o && o.customer && o.customer.name) || 'Walk-in';
   const tok = o ? padTok(o.tokenNo) : id;
   if (confirm(`Deliver #${tok} — ${custName}?\nCash received: ₹${cash || (o ? o.total : 0)}`) === false) return;
-  const r = await api(`orders/${id}/deliver`, { cash });
-  if (r.error) return toast('⚠︎ ' + r.error);
-  toast(`✅ #${padTok(r.order.tokenNo)} delivered — ${money(r.order.cashCollected)} collected`);
-  refresh();
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const r = await api(`orders/${id}/deliver`, { cash });
+    if (r.error) return toast('⚠︎ ' + r.error);
+    toast(`✅ #${padTok(r.order.tokenNo)} delivered — ${money(r.order.cashCollected)} collected`);
+    refresh();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ DELIVERED'; }
+  }
 }
 
 refresh();

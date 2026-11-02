@@ -37,6 +37,9 @@ setEnv({
   SUPABASE_URL: SUPA_URL,
   SUPABASE_KEY: SUPA_KEY,
 });
+if (SUPA_ON) {
+  shared.initRest();
+}
 
 let saveTimer = null;
 let saving = false;        // a Supabase push is in flight

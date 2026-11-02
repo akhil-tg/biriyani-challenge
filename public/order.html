@@ -27,7 +27,7 @@ if ('serviceWorker' in navigator) {
   <div id="menu" class="card"><p class="muted">Loading menu…</p></div>
 
   <div class="totalbar"><span>TOTAL</span><span class="spacer"></span><span id="total">₹0</span></div>
-  <button style="width:100%;padding:16px;font-size:16px" onclick="saveOrder()">✅ SAVE ORDER</button>
+  <button id="btnSave" style="width:100%;padding:16px;font-size:16px" onclick="saveOrder()">✅ SAVE ORDER</button>
   <button class="ghost" style="width:100%;margin-top:8px" onclick="clearForm()">Clear form</button>
 </div>
 
@@ -48,8 +48,29 @@ let items = [];
 const qty = {};
 
 async function loadMenu() {
-  const r = await api('items');
-  items = r.items || [];
+  try {
+    const cached = JSON.parse(localStorage.getItem('bc_items_cache') || '[]');
+    if (cached.length && !items.length) {
+      items = cached;
+      renderMenu();
+    }
+  } catch {}
+
+  try {
+    const r = await api('items');
+    if (r && r.items) {
+      items = r.items;
+      localStorage.setItem('bc_items_cache', JSON.stringify(items));
+      renderMenu();
+    }
+  } catch {
+    if (!items.length) {
+      $('#menu').innerHTML = '<p class="muted">Could not load menu. Check network or ask Admin.</p>';
+    }
+  }
+}
+
+function renderMenu() {
   const box = $('#menu');
   if (!items.length) { box.innerHTML = '<p class="muted">No items yet — ask Admin to add menu items.</p>'; return; }
   box.innerHTML = items.map(i => `
@@ -58,7 +79,7 @@ async function loadMenu() {
       <div class="price">${money(i.price)}</div>
       <div class="stepper">
         <button onclick="bump(${i.id},-1)">−</button>
-        <span class="qty" id="q${i.id}">0</span>
+        <span class="qty" id="q${i.id}">${qty[i.id] || 0}</span>
         <button onclick="bump(${i.id},1)">+</button>
       </div>
     </div>`).join('');
@@ -85,11 +106,21 @@ function orderPayload() {
   };
 }
 
+let isSaving = false;
 async function saveOrder() {
+  if (isSaving) return;
   const p = orderPayload();
   const sel = items.filter(i => qty[i.id] > 0);
   if (!sel.length) return toast('Add at least one item 🍗');
   if (!p.customer.name.trim()) return toast('Customer name is required');
+
+  const btn = $('#btnSave');
+  isSaving = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ SAVING ORDER...';
+  }
+
   try {
     const r = await api('orders', p);
     if (r && r.error) return toast('⚠️ ' + r.error);
@@ -105,6 +136,12 @@ async function saveOrder() {
     localStorage.setItem('bc_queue', JSON.stringify(q));
     toast('📴 No server! Order saved on this phone — it will sync automatically.');
     clearForm();
+  } finally {
+    isSaving = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✅ SAVE ORDER';
+    }
   }
 }
 

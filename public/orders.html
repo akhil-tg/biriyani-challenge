@@ -87,12 +87,21 @@ function render() {
     : '<p class="muted center" style="margin-top:20px">No orders match ' + (q ? '“' + esc(q) + '”' : 'this filter') + '.</p>';
 }
 
+function phoneLinks(phone) {
+  if (!phone) return '';
+  const raw = String(phone).trim();
+  const digits = raw.replace(/\D/g, '');
+  const waNum = digits.length === 10 ? '91' + digits : digits;
+  return ` · <a href="tel:${esc(raw)}" style="color:inherit;text-decoration:underline">📱 ${esc(raw)}</a>` +
+    (digits.length >= 10 ? ` <a href="https://wa.me/${waNum}" target="_blank" rel="noopener" style="text-decoration:none;font-size:13px" title="Chat on WhatsApp">💬</a>` : '');
+}
+
 function orderCard(o) {
   const items = (o.items || []).map(i => esc(i.name) + ' ×' + i.qty).join(' · ');
   const c = o.customer || {};
   return `<div class="card ocard ${o.status}">
     <div class="row"><span class="tok">#${padTok(o.tokenNo)}</span>
-      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${c.phone ? ' · 📱 ' + esc(c.phone) : ''}</span>
+      <span style="flex:1;font-weight:700">${esc(c.name || 'Walk-in')}${phoneLinks(c.phone)}</span>
       <span class="badge ${o.status}">${o.status === 'delivered' ? '🟢 Delivered' : '🟡 Pending'}</span></div>
     <div class="oitems">${items}</div>
     ${c.place || c.address ? `<div class="oaddr">📍 ${esc(c.place || '')} ${esc(c.address || '')}</div>` : ''}
