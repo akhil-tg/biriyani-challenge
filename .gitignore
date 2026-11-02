@@ -6,3 +6,5 @@ Thumbs.db
 .dev.vars
 
 .netlify/
+
+supabase/.temp/
