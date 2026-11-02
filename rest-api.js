@@ -112,7 +112,7 @@ async function resolveUser(token) {
   if (!claims || typeof claims.id !== 'number') return null;
   const row = await selectOne('coordinators', 'id=eq.' + claims.id + '&active=eq.true&limit=1');
   if (!row) return null;
-  return publicUser(coordRowToObj(row));
+  return publicUser(row); // pass the raw DB row: publicUser reads is_admin/active
 }
 
 const nameQ = s => encodeURIComponent(String(s));
@@ -133,7 +133,7 @@ async function issueSession(row) {
   return {
     ok: true,
     token,
-    user: publicUser(coordRowToObj(row)),
+    user: publicUser(row), // pass the raw DB row: publicUser reads is_admin/active
   };
 }
 

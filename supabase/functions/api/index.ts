@@ -8,7 +8,7 @@
  * Live URL: https://acsauaywkyriukmpkjnt.supabase.co/functions/v1/api/<route>
  * Secrets needed: SUPABASE_URL, SUPABASE_KEY (service role), AUTH_SECRET.
  */
-import { initSupa, restApi, resolveUser } from '../_shared/rest-api.js';
+import { initSupa, restApi, resolveUser } from '../_shared/rest-api.mjs';
 
 const SESSION_HEADER = 'authorization';
 
