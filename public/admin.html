@@ -16,8 +16,8 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <!-- admin login (shown when not logged in as an admin) -->
 <div id="adminLogin" class="card narrow" hidden>
   <h2 class="center">Admin login 🔐</h2>
-  <div class="field"><label>Email</label><input id="alEmail" type="email" autocapitalize="none" autocomplete="username" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
-  <div class="field"><label>Password</label><input id="alPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  <div class="field"><label>Your name</label><input id="alName" autocapitalize="none" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
+  <div class="field"><label>6-digit PIN</label><input id="alPinInput" type="password" inputmode="numeric" maxlength="6" onkeydown="if(event.key==='Enter') adminDoLogin()"></div>
   <button class="btn-block" onclick="adminDoLogin()">LOGIN →</button>
   <p class="muted center" style="margin-top:10px">Admins only · coordinators log in at the home page</p>
 </div>
@@ -54,8 +54,7 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 <div id="tab-coords" hidden>
   <div class="card">
     <div class="field"><label>Name</label><input id="ncName" autocapitalize="none"></div>
-    <div class="field"><label>Email (their login)</label><input id="ncEmail" type="email" autocapitalize="none"></div>
-    <div class="field"><label>Starting password (6+ characters)</label><input id="ncPass" type="text" autocomplete="off"></div>
+    <div class="field"><label>6-digit PIN (their login)</label><input id="ncPin" inputmode="numeric" maxlength="6"></div>
     <label class="chk"><input type="checkbox" id="ncAdmin"> Make this coordinator an <b>Admin</b></label>
     <button class="btn-block" onclick="addCoord()">+ Add coordinator</button>
   </div>
@@ -104,25 +103,15 @@ bindSearch('#search', renderOrders);
 })();
 
 async function adminDoLogin() {
-  const email = ($('#alEmail').value || '').trim();
-  const pass = $('#alPass').value || '';
-  if (!email || !pass) return alert('Email and password required');
-  const out = await api('auth/login', { email, password: pass });
+  const name = ($('#alName').value || '').trim();
+  const pin = ($('#alPinInput').value || '').trim();
+  if (!name || !pin) return alert('Name and PIN required');
+  const out = await api('login', { name, pin });
   if (!out.ok) return alert(out.error || 'Login failed');
-  localStorage.setItem('bc_tok', out.access_token);
-  if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
-  const me = await api('me');
-  if (!me.user) {
-    logout(true);
-    return alert(me.error || 'Login failed');
-  }
-  if (!me.user.isAdmin) {
-    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
-    localStorage.removeItem('bc_uid');
+  if (!out.user.isAdmin) {
     return alert('Only admins can log in here. Coordinators use the home page.');
   }
-  localStorage.setItem('bc_uid', me.user.id);
-  localStorage.setItem('bc_user', JSON.stringify(me.user));
+  saveSession(out.token, out.user);
   location.reload();
 }
 
@@ -171,11 +160,11 @@ async function refresh() {
 }
 
 async function addCoord() {
-  const payload = { name: $('#ncName').value, email: $('#ncEmail').value, password: $('#ncPass').value, isAdmin: $('#ncAdmin').checked };
+  const payload = { name: $('#ncName').value, pin: $('#ncPin').value, isAdmin: $('#ncAdmin').checked };
   const r = await api('coordinators', payload);
   if (r.error) return alert(r.error);
-  toast('✅ ' + r.coordinator.name + ' added — they log in with that email + password');
-  $('#ncName').value = $('#ncEmail').value = $('#ncPass').value = '';
+  toast('✅ ' + r.coordinator.name + ' added — they log in with their name + PIN');
+  $('#ncName').value = $('#ncPin').value = '';
   $('#ncAdmin').checked = false;
   refresh();
 }

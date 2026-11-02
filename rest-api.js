@@ -1,26 +1,32 @@
-/* rest-api.js — SQL-table storage handlers for locked (Supabase) deployments.
+/* rest-api.js — SQL-table storage + auth handlers (name + PIN model).
  *
  * Every handler talks directly to Postgres tables via the Supabase REST API
  * (PostgREST). Rows and columns are what you see in the Supabase Table Editor:
- *   coordinators(id, auth_uid, name, email, is_admin, active, created_at)
+ *   coordinators(id, name, pin_hash, is_admin, active, created_at)
  *   items(id, name, price, sort, active)
  *   orders(id, token_no, taken_by.., customer_*, total, status, cash,
  *          delivered_*, items jsonb, created_at)
  *
- * The public response shapes are identical to shared-api.js, so frontend and
- * host stay unchanged — only persistence is normalized.
+ * Auth: coordinators (and the admin, flagged is_admin) log in with
+ * name + 6-digit PIN. Successful login returns an HMAC-signed session token
+ * (auth.js) carrying {id, name, isAdmin, exp}. resolveUser() verifies the
+ * signature and re-checks the account is still active on every request, so
+ * removing an account invalidates its sessions immediately.
  */
 'use strict';
+const auth = require('./auth.js');
 
 let url = '';
 let rootKey = '';
+let authSecret = '';
 
 function initSupa(env) {
   url = ((env && env.SUPABASE_URL) || '').replace(/\/+$/, '');
   rootKey = (env && env.SUPABASE_KEY) || '';
-  return !!(url && rootKey);
+  authSecret = (env && env.AUTH_SECRET) || '';
+  return !!(url && rootKey && authSecret);
 }
-function ready() { return !!(url && rootKey); }
+function ready() { return !!(url && rootKey && authSecret); }
 
 function hdr(extra) {
   return Object.assign({
@@ -59,7 +65,13 @@ const pad = (n, w) => String(n).padStart(w, '0');
 const csvEscape = v => '"' + (v == null ? '' : String(v)).replace(/"/g, '""') + '"';
 
 function coordRowToObj(r) {
-  return { id: r.id, authUid: r.auth_uid, name: r.name, email: r.email || undefined, isAdmin: !!r.is_admin, active: !!r.active, createdAt: r.created_at };
+  return {
+    id: r.id,
+    name: r.name,
+    isAdmin: !!r.is_admin,
+    active: !!r.active,
+    createdAt: r.created_at,
+  };
 }
 function itemRowToObj(r) {
   return { id: r.id, name: r.name, price: r.price, order: r.sort, sort: r.sort, active: !!r.active };
@@ -86,36 +98,43 @@ function orderRowToObj(r) {
     createdAt: r.created_at,
   };
 }
-function orderObjToRow(o, user) {
-  const c = o.customer || {};
-  return {
-    taken_by: user ? user.id : (o.takenBy || null),
-    taken_by_name: user ? user.name : (o.takenByName || null),
-    customer_name: c.name || '',
-    customer_phone: c.phone || '',
-    customer_place: c.place || '',
-    customer_address: c.address || '',
-    total: Math.max(0, Math.round(Number(o.total) || 0)),
-    status: o.status || 'pending',
-    items: o.items || [],
-  };
+
+/* ---------- auth helpers ---------- */
+function publicUser(row) {
+  return row ? { id: row.id, name: row.name, isAdmin: !!row.is_admin, active: !!row.active } : null;
 }
 
-/* auth profile provisioning — unique auth_uid + read-back means races are safe */
-async function resolveCoordinator(au) {
-  let row = await selectOne('coordinators', 'auth_uid=eq.' + au.id + '&limit=1');
-  if (row) return row.active ? coordRowToObj(row) : null;
-  const anyAdminRow = await selectOne('coordinators', 'is_admin=eq.true&active=eq.true',);
-  await write('coordinators', 'POST', [{
-    auth_uid: au.id,
-    name: au.name || (au.email || 'user').split('@')[0],
-    email: au.email,
-    is_admin: !anyAdminRow, // the first provisioned profile becomes the Admin
-    active: true,
-  }], 'return=representation,resolution=merge-duplicates');
-  // read back the authoritative row (in case a concurrent upsert won)
-  row = await selectOne('coordinators', 'auth_uid=eq.' + au.id + '&limit=1');
-  return row && row.active ? coordRowToObj(row) : null;
+/* token -> user; also re-checks the account is still active so removed
+ * accounts lose access immediately, even with a valid signature */
+async function resolveUser(token) {
+  if (!authSecret || !token) return null;
+  const claims = await auth.verifySession(authSecret, token);
+  if (!claims || typeof claims.id !== 'number') return null;
+  const row = await selectOne('coordinators', 'id=eq.' + claims.id + '&active=eq.true&limit=1');
+  if (!row) return null;
+  return publicUser(coordRowToObj(row));
+}
+
+const nameQ = s => encodeURIComponent(String(s));
+
+async function findAccountRow(name) {
+  return qb('coordinators?name=ilike.' + nameQ(name) + '&active=eq.true');
+}
+
+function validatePin(pin) {
+  return /^\d{6}$/.test(String(pin || '').trim());
+}
+
+async function issueSession(row) {
+  const token = await auth.signSession(
+    authSecret,
+    { id: row.id, name: row.name, isAdmin: !!row.is_admin }
+  );
+  return {
+    ok: true,
+    token,
+    user: publicUser(coordRowToObj(row)),
+  };
 }
 
 /* ---- pagination helper (orders can grow past the default limits) ---- */
@@ -137,17 +156,48 @@ restApi['GET /status'] = async () => {
   const coord = await selectOne('coordinators', 'limit=1');
   let ord = null;
   try { ord = await selectOne('orders', 'limit=1'); } catch {}
-  return { needSetup: !admin, hasData: !!coord || !!ord, setupLocked: true };
+  return {
+    needSetup: !admin,
+    hasData: !!coord || !!ord,
+    setupLocked: false,
+  };
 };
 
-restApi['POST /setup'] = async () => ({ error: 'Admin creation is locked — create the admin in Supabase Authentication.' });
-restApi['POST /seed-demo'] = async () => ({ error: 'Demo data is disabled on this deployment.' });
-restApi['POST /login'] = async () => ({ error: 'This deployment uses email + password login (Supabase Authentication).' });
-
-restApi['GET /me'] = (b, user) => {
-  if (!user) return { error: 'Login required' };
-  return { user: { id: user.id, name: user.name, email: user.email, isAdmin: !!user.isAdmin, active: !!user.active } };
+/* first-run: create the first admin (name + 6-digit PIN) */
+restApi['POST /setup'] = async b => {
+  if (!authSecret) return { error: 'Server auth secret not configured' };
+  const admin = await selectOne('coordinators', 'is_admin=eq.true&active=eq.true&limit=1');
+  if (admin) return { error: 'Setup already done' };
+  const name = (b.name || '').trim();
+  const pin = String(b.pin || '').trim();
+  if (!name || !validatePin(pin)) return { error: 'Name and 6-digit PIN required' };
+  const dupes = await findAccountRow(name);
+  if (dupes.length) return { error: 'Name already exists' };
+  const rows = await write('coordinators', 'POST', [{
+    name,
+    pin_hash: await auth.newPinHash(pin),
+    is_admin: true,
+    active: true,
+  }], 'return=representation');
+  return issueSession(rows[0]);
 };
+
+restApi['POST /login'] = async b => {
+  if (!authSecret) return { error: 'Server auth secret not configured' };
+  const name = (b.name || '').trim();
+  const pin = String(b.pin || '').trim();
+  if (!name) return { error: 'Name required' };
+  if (!validatePin(pin)) return { error: 'PIN must be 6 digits' };
+  const rows = await findAccountRow(name);
+  // admin first so a coordinator with the same (inactive) name can't shadow
+  rows.sort((x, y) => (y.is_admin ? 1 : 0) - (x.is_admin ? 1 : 0));
+  for (const row of rows) {
+    if (await auth.checkPin(pin, row.pin_hash)) return issueSession(row);
+  }
+  return { ok: false, error: 'Wrong name or PIN' };
+};
+
+restApi['GET /me'] = (b, user) => (user ? { user } : { error: 'Login required' });
 
 restApi['GET /coordinators'] = async (b, user) => {
   if (!user) return { error: 'Login required' };
@@ -158,22 +208,16 @@ restApi['GET /coordinators'] = async (b, user) => {
 restApi['POST /coordinators'] = async (b, user) => {
   if (!user || !user.isAdmin) return { error: 'Admin only' };
   const name = (b.name || '').trim();
+  const pin = String(b.pin || '').trim();
   if (!name) return { error: 'Name required' };
-  const dupe = await selectOne('coordinators', 'active=eq.true&name=ilike.' + encodeURIComponent(name) + '&limit=1');
-  if (dupe) return { error: 'Name already exists' };
-  const email = (b.email || '').trim().toLowerCase();
-  const password = String(b.password || '');
-  if (!/.+@.+\..+/.test(email)) return { error: 'Valid email required' };
-  if (password.length < 6) return { error: 'Password must be at least 6 characters' };
-  const res = await fetch(url + '/auth/v1/admin/users', {
-    method: 'POST',
-    headers: hdr(),
-    body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { name } }),
-  });
-  const body2 = await res.json().catch(() => ({}));
-  if (!res.ok) return { error: (body2 && (body2.msg || body2.message || body2.error_description)) || ('Supabase auth error ' + res.status) };
+  if (!validatePin(pin)) return { error: 'PIN must be 6 digits' };
+  const dupes = await findAccountRow(name);
+  if (dupes.length) return { error: 'Name already exists' };
   const rows = await write('coordinators', 'POST', [{
-    auth_uid: body2.id, name, email, is_admin: !!b.isAdmin, active: true,
+    name,
+    pin_hash: await auth.newPinHash(pin),
+    is_admin: !!b.isAdmin,
+    active: true,
   }], 'return=representation');
   return { ok: true, coordinator: coordRowToObj(rows[0]) };
 };
@@ -181,12 +225,7 @@ restApi['POST /coordinators'] = async (b, user) => {
 restApi['POST /coordinators/remove'] = async (b, user) => {
   if (!user || !user.isAdmin) return { error: 'Admin only' };
   const c = await selectOne('coordinators', 'id=eq.' + Number(b.id) + '&limit=1');
-  if (c) {
-    if (c.auth_uid) {
-      try { await fetch(url + '/auth/v1/admin/users/' + c.auth_uid, { method: 'DELETE', headers: hdr() }); } catch {}
-    }
-    await write('coordinators?id=eq.' + c.id, 'PATCH', { active: false, is_admin: false }, 'return=minimal');
-  }
+  if (c) await write('coordinators?id=eq.' + c.id, 'PATCH', { active: false }, 'return=minimal');
   return { ok: true };
 };
 
@@ -387,4 +426,4 @@ restApi['GET /export.csv'] = async (b, user) => {
   return { csv: rows.map(r => r.map(csvEscape).join(',')).join('\r\n') };
 };
 
-module.exports = { initSupa, ready, restApi, resolveCoordinator };
+module.exports = { initSupa, ready, restApi, resolveUser };

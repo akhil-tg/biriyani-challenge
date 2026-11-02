@@ -6,39 +6,24 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 
 async function api(path, body, method) {
   const tok = localStorage.getItem('bc_tok');
-  const make = t => {
-    const opt = {
-      method: method || (body !== undefined ? 'POST' : 'GET'),
-      headers: { 'Content-Type': 'application/json' },
-    };
-    if (t) opt.headers['Authorization'] = 'Bearer ' + t;
-    if (body !== undefined) opt.body = JSON.stringify(body);
-    return opt;
+  const opt = {
+    method: method || (body !== undefined ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json' },
   };
-  let res = await fetch('/api/' + path, make(tok));
+  if (tok) opt.headers['Authorization'] = 'Bearer ' + tok;
+  if (body !== undefined) opt.body = JSON.stringify(body);
+  let res = await fetch('/api/' + path, opt);
   let out = {};
   try { out = await res.json(); } catch {}
-  if (out && out.error === 'Login required') {
-    // Supabase mode: session may have expired — refresh once and retry
-    if (tok && localStorage.getItem('bc_rt')) {
-      const rr = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: localStorage.getItem('bc_rt') }),
-      });
-      const rj = await rr.json().catch(() => ({}));
-      if (rj && rj.access_token) {
-        localStorage.setItem('bc_tok', rj.access_token);
-        if (rj.refresh_token) localStorage.setItem('bc_rt', rj.refresh_token);
-        res = await fetch('/api/' + path, make(rj.access_token));
-        out = {};
-        try { out = await res.json(); } catch {}
-        if (!(out && out.error)) return out;
-      }
-    }
-    logout(true);
-  }
+  // session revoked or no longer valid -> clear it and bounce to the login page
+  if (out && out.error === 'Login required' && tok) logout(true);
   return out;
+}
+
+function saveSession(token, user) {
+  localStorage.setItem('bc_tok', token);
+  localStorage.setItem('bc_uid', user.id);
+  localStorage.setItem('bc_user', JSON.stringify(user));
 }
 
 /* debounce: fires fn ms after the last call */
@@ -83,7 +68,6 @@ function logout(quiet) {
   localStorage.removeItem('bc_uid');
   localStorage.removeItem('bc_user');
   localStorage.removeItem('bc_tok');
-  localStorage.removeItem('bc_rt');
   location.href = '/index.html';
 }
 

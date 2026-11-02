@@ -19,45 +19,52 @@ if ('serviceWorker' in navigator) {
   <p class="muted">Order Tracker</p>
 </div>
 
-<!-- login (Supabase Authentication — email + password) -->
+<!-- login (name + 6-digit PIN) -->
 <div id="loginBox" class="card narrow" hidden>
-  <div class="field"><label>Email</label><input id="lgEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter') doLogin()"></div>
-  <div class="field"><label>Password</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
+  <div class="field"><label>Your name</label><input id="lgName" autocapitalize="none" placeholder="e.g. aman"></div>
+  <div class="field"><label>6-digit PIN</label><input id="lgPin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') doLogin()"></div>
   <button class="btn-block" onclick="doLogin()">LOGIN →</button>
-  <p class="muted center" style="margin-top:10px">Coordinators login here · admins use <b>/admin</b></p>
+  <p class="muted center" style="margin-top:10px">Coordinators &amp; admins log in here</p>
+</div>
+
+<!-- first-run admin setup (shown only while no admin exists) -->
+<div id="setupBox" class="card narrow" hidden>
+  <h2 class="center">First time setup 👋</h2>
+  <p class="muted center">Create the Admin account to get started.</p>
+  <div class="field"><label>Admin name</label><input id="admName" autocapitalize="none" placeholder="e.g. admin"></div>
+  <div class="field"><label>6-digit PIN</label><input id="admPin" type="password" inputmode="numeric" maxlength="6" placeholder="e.g. 482915" onkeydown="if(event.key==='Enter') doSetup()"></div>
+  <button class="btn-block" onclick="doSetup()">CREATE ADMIN</button>
 </div>
 
 <script src="/js/common.js"></script>
 <script>
-/* Supabase Authentication login (email + password) */
 async function doLogin() {
-  const email = ($('#lgEmail').value || '').trim();
-  const pass = $('#lgPass').value || '';
-  if (!email || !pass) return alert('Please enter both email and password');
-  const out = await api('auth/login', { email, password: pass });
-  if (!out.ok) return alert(out.error || 'Login failed');
-  localStorage.setItem('bc_tok', out.access_token);
-  if (out.refresh_token) localStorage.setItem('bc_rt', out.refresh_token);
-  const me = await api('me');
-  if (!me.user) {
-    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
-    return alert(me.error || 'Login failed');
-  }
-  if (me.user.isAdmin) {
-    localStorage.removeItem('bc_tok'); localStorage.removeItem('bc_rt');
-    return alert('Admins log in via the /admin page, not here.');
-  }
-  localStorage.setItem('bc_uid', me.user.id);
-  localStorage.setItem('bc_user', JSON.stringify(me.user));
-  location.href = '/order.html';
+  const name = ($('#lgName').value || '').trim();
+  const pin = ($('#lgPin').value || '').trim();
+  if (!name || !pin) return alert('Please enter both name and PIN');
+  const out = await api('login', { name, pin });
+  if (!out.ok) return alert(out.error || 'Wrong name or PIN');
+  saveSession(out.token, out.user);
+  location.href = out.user.isAdmin ? '/admin.html' : '/order.html';
 }
-(() => {
+async function doSetup() {
+  const name = ($('#admName').value || '').trim();
+  const pin = ($('#admPin').value || '').trim();
+  if (!name || !/^\d{6}$/.test(pin)) return alert('Name and 6-digit PIN required');
+  const out = await api('setup', { name, pin });
+  if (!out.ok) return alert(out.error || 'Setup failed');
+  saveSession(out.token, out.user);
+  location.href = '/admin.html';
+}
+(async () => {
   const u = getUser();
   if (u && localStorage.getItem('bc_tok')) {
     location.href = u.isAdmin ? '/admin.html' : '/order.html';
     return;
   }
-  $('#loginBox').hidden = false;
+  const st = await api('status');
+  if (st && st.needSetup) $('#setupBox').hidden = false;
+  else $('#loginBox').hidden = false;
 })();
 </script>
 </body>

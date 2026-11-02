@@ -1,5 +1,5 @@
 /* Biriyani Challenge — offline cache */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = 'bc-' + VERSION;
 const CACHE_URLS = [
   '/',
