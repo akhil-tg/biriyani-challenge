@@ -97,15 +97,25 @@ function publicUser(row) {
   return row ? { id: row.id, name: row.name, isAdmin: !!row.is_admin, active: !!row.active } : null;
 }
 
-/* token -> user; also re-checks the account is still active so removed
- * accounts lose access immediately, even with a valid signature */
+/* token -> user; also re-checks the account is still active. The active row
+ * is cached briefly per isolate so repeated requests don't pay a DB hop
+ * (the hop is expensive from the edge, ~0.6s); removed/deactivated accounts
+ * therefore lose access within up to 30s instead of instantly. */
+const USER_TTL_MS = 30000;
+const userCache = new Map(); // token -> { user, at }
+
 async function resolveUser(token) {
   if (!authSecret || !token) return null;
+  const cached = userCache.get(token);
+  if (cached && Date.now() - cached.at < USER_TTL_MS) return cached.user;
   const claims = await auth.verifySession(authSecret, token);
   if (!claims || typeof claims.id !== 'number') return null;
   const row = await selectOne('coordinators', 'id=eq.' + claims.id + '&active=eq.true&limit=1');
   if (!row) return null;
-  return publicUser(row); // pass the raw DB row: publicUser reads is_admin/active
+  const user = publicUser(row); // pass the raw DB row: publicUser reads is_admin/active
+  if (userCache.size > 400) userCache.clear(); // crude prune
+  userCache.set(token, { user, at: Date.now() });
+  return user;
 }
 
 const nameQ = s => encodeURIComponent(String(s));
@@ -145,10 +155,12 @@ async function allOrders() {
 const restApi = {};
 
 restApi['GET /status'] = async () => {
-  const admin = await selectOne('coordinators', 'is_admin=eq.true&active=eq.true&limit=1');
-  const coord = await selectOne('coordinators', 'limit=1');
-  let ord = null;
-  try { ord = await selectOne('orders', 'limit=1'); } catch {}
+  // three independent lookups: run in parallel (every page open hits this)
+  const [admin, coord, ord] = await Promise.all([
+    selectOne('coordinators', 'is_admin=eq.true&active=eq.true&limit=1'),
+    selectOne('coordinators', 'limit=1'),
+    selectOne('orders', 'limit=1').catch(() => null),
+  ]);
   return {
     needSetup: !admin,
     hasData: !!coord || !!ord,
@@ -260,15 +272,10 @@ restApi['POST /orders'] = async (b, user) => {
   const custName = (cust.name || '').trim();
   if (!custName) return { error: 'Customer name required' };
 
-  /* idempotency: clients send a per-attempt random request_key; if the same
-   * key already exists (offline-queue replay / flaky-network retry) return
-   * the stored order instead of creating a duplicate. */
+  /* request_key (unique in DB) makes replays safe: we INSERT blindly —
+   * if the same key was already stored, Postgres rejects the duplicate
+   * (409) and we return the stored order. No pre-check round-trip needed. */
   const rk = String(b.request_key || '').slice(0, 80).trim() || null;
-  if (rk) {
-    const existing = await selectOne('orders', 'request_key=eq.' + encodeURIComponent(rk) + '&limit=1');
-    if (existing) return { ok: true, order: orderRowToObj(existing), already: true };
-  }
-
   const ids = [...new Set(requested.map(r => Number(r.itemId)))].filter(Number.isFinite);
   const menu = ids.length ? await qb('items?id=in.(' + ids.join(',') + ')&active=eq.true') : [];
   const byId = new Map(menu.map(m => [m.id, m]));
