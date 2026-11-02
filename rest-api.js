@@ -267,6 +267,15 @@ restApi['POST /orders'] = async (b, user) => {
   const custName = (cust.name || '').trim();
   if (!custName) return { error: 'Customer name required' };
 
+  /* idempotency: clients send a per-attempt random request_key; if the same
+   * key already exists (offline-queue replay / flaky-network retry) return
+   * the stored order instead of creating a duplicate. */
+  const rk = String(b.request_key || '').slice(0, 80).trim() || null;
+  if (rk) {
+    const existing = await selectOne('orders', 'request_key=eq.' + encodeURIComponent(rk) + '&limit=1');
+    if (existing) return { ok: true, order: orderRowToObj(existing), already: true };
+  }
+
   const ids = [...new Set(requested.map(r => Number(r.itemId)))].filter(Number.isFinite);
   const menu = ids.length ? await qb('items?id=in.(' + ids.join(',') + ')&active=eq.true') : [];
   const byId = new Map(menu.map(m => [m.id, m]));
@@ -280,7 +289,7 @@ restApi['POST /orders'] = async (b, user) => {
     total += m.price * qty;
   }
 
-  const rows = await write('orders', 'POST', [{
+  const insert = [{
     taken_by: user.id,
     taken_by_name: user.name,
     customer_name: custName,
@@ -290,7 +299,18 @@ restApi['POST /orders'] = async (b, user) => {
     total,
     status: 'pending',
     items: snapshot,
-  }], 'return=representation');
+    request_key: rk,
+  }];
+  let rows;
+  try {
+    rows = await write('orders', 'POST', insert, 'return=representation');
+  } catch (e) {
+    if (rk && /409|duplicate/i.test(String((e && e.message) || ''))) {
+      const dup = await selectOne('orders', 'request_key=eq.' + encodeURIComponent(rk) + '&limit=1');
+      if (dup) return { ok: true, order: orderRowToObj(dup), already: true };
+    }
+    throw e;
+  }
   return { ok: true, order: orderRowToObj(rows[0]) };
 };
 
@@ -299,9 +319,12 @@ restApi['GET /orders'] = async (b, user, url) => {
   const status = url ? url.searchParams.get('status') : null;
   let path = 'orders?order=id.desc&limit=500';
   if (status === 'pending' || status === 'delivered') path += '&status=eq.' + status;
-  const orders = (await qb(path)).map(orderRowToObj);
-  const coordinators = (await qb('coordinators?active=eq.true&order=id.asc')).map(coordRowToObj);
-  return { orders, coordinators };
+  // both lookups are independent: run in parallel to save a round-trip
+  const [orders, coordinators] = await Promise.all([
+    qb(path),
+    qb('coordinators?active=eq.true&order=id.asc'),
+  ]);
+  return { orders: orders.map(orderRowToObj), coordinators: coordinators.map(coordRowToObj) };
 };
 
 restApi['GET /orders/:id'] = async (b, user, url, id) => {
@@ -312,14 +335,35 @@ restApi['GET /orders/:id'] = async (b, user, url, id) => {
 
 restApi['POST /orders/:id/deliver'] = async (b, user, url, id) => {
   if (!user) return { error: 'Login required' };
+  const hasCash = !(b.cash == null || b.cash === '');
+  const cash = hasCash ? Number(b.cash) : null;
+
+  // fast path: the client (deliver page) already sends the cash amount, so we
+  // can go straight to the conditional PATCH (1 DB round-trip instead of 2)
+  if (hasCash && !(cash >= 0)) return { error: 'Invalid cash amount' };
+  if (hasCash) {
+    const rows = await write('orders?id=eq.' + id + '&status=eq.pending', 'PATCH', {
+      status: 'delivered',
+      cash_collected: Math.round(cash),
+      delivered_by: user.id,
+      delivered_by_name: user.name,
+      delivered_at: now(),
+    }, 'return=representation');
+    if (rows && rows.length) return { ok: true, order: orderRowToObj(rows[0]) };
+    const cur = await selectOne('orders', 'id=eq.' + id + '&limit=1');
+    if (!cur) return { error: 'Order not found' };
+    if (cur.status === 'delivered') return { error: 'Already delivered' };
+    return { error: 'Order was already delivered or updated by another coordinator' };
+  }
+
+  // fallback (e.g. admin marks delivered without a cash figure): default cash
+  // to the order total, which needs the current row first
   const cur = await selectOne('orders', 'id=eq.' + id + '&limit=1');
   if (!cur) return { error: 'Order not found' };
   if (cur.status === 'delivered') return { error: 'Already delivered' };
-  let cash = b.cash == null || b.cash === '' ? cur.total : Number(b.cash);
-  if (!(cash >= 0)) cash = cur.total;
   const rows = await write('orders?id=eq.' + id + '&status=eq.pending', 'PATCH', {
     status: 'delivered',
-    cash_collected: Math.round(cash),
+    cash_collected: Math.round(cur.total),
     delivered_by: user.id,
     delivered_by_name: user.name,
     delivered_at: now(),
@@ -376,9 +420,12 @@ restApi['POST /orders/:id/update'] = async (b, user, url, id) => {
 
 restApi['GET /summary'] = async (b, user) => {
   if (!user) return { error: 'Login required' };
-  const rows = await allOrders();
+  const [rows, coordsRaw] = await Promise.all([
+    allOrders(),
+    qb('coordinators?active=eq.true&order=id.asc'),
+  ]);
   const orders = rows.map(orderRowToObj);
-  const coords = (await qb('coordinators?active=eq.true&order=id.asc')).map(coordRowToObj);
+  const coords = coordsRaw.map(coordRowToObj);
 
   const total = orders.length;
   const delivered = orders.filter(o => o.status === 'delivered');

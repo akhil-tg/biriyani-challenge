@@ -53,6 +53,7 @@ create table orders (
   delivered_by_name text,
   delivered_at      timestamptz,
   items             jsonb not null default '[]',
+  request_key       text unique,
   created_at        timestamptz not null default now()
 );
 

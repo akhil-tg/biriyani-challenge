@@ -106,6 +106,13 @@ function orderPayload() {
   };
 }
 
+/* one key per logical order attempt: survives offline-queue replays so the
+ * server can't create the same order twice */
+function newRequestKey() {
+  return (crypto.randomUUID && crypto.randomUUID())
+    || 'ok-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+}
+
 let isSaving = false;
 async function saveOrder() {
   if (isSaving) return;
@@ -113,6 +120,7 @@ async function saveOrder() {
   const sel = items.filter(i => qty[i.id] > 0);
   if (!sel.length) return toast('Add at least one item 🍗');
   if (!p.customer.name.trim()) return toast('Customer name is required');
+  p.request_key = newRequestKey();
 
   const btn = $('#btnSave');
   isSaving = true;

@@ -1,7 +1,7 @@
 /* Biriyani Challenge — offline cache (relative paths: the site lives under
  * /biriyani-challenge/ on GitHub Pages, so absolute '/index.html' etc. would
  * all 404 there). Base is this file's directory. */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = 'bc-' + VERSION;
 const CACHE_URLS = [
   './',
