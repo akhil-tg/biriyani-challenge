@@ -4,6 +4,10 @@ const money = n => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const padTok = n => String(n).padStart(3, '0');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/* Backend: the Supabase edge-function API. The base lives here so the static
+ * pages work from any host (GitHub Pages, localhost, …). */
+const API_BASE = 'https://acsauaywkyriukmpkjnt.supabase.co/functions/v1';
+
 async function api(path, body, method) {
   const tok = localStorage.getItem('bc_tok');
   const opt = {
@@ -12,7 +16,7 @@ async function api(path, body, method) {
   };
   if (tok) opt.headers['Authorization'] = 'Bearer ' + tok;
   if (body !== undefined) opt.body = JSON.stringify(body);
-  let res = await fetch('/api/' + path, opt);
+  let res = await fetch(API_BASE + '/api/' + path, opt);
   let out = {};
   try { out = await res.json(); } catch {}
   // session revoked or no longer valid -> clear it and bounce to the login page
@@ -68,7 +72,7 @@ function logout(quiet) {
   localStorage.removeItem('bc_uid');
   localStorage.removeItem('bc_user');
   localStorage.removeItem('bc_tok');
-  location.href = '/index.html';
+  location.href = 'index.html';
 }
 
 function getUser() {
@@ -77,8 +81,8 @@ function getUser() {
 
 function requireLogin(isAdminPage) {
   const u = getUser();
-  if (!u) { location.href = '/index.html'; return null; }
-  if (isAdminPage && !u.isAdmin) { location.href = '/order.html'; return null; }
+  if (!u) { location.href = 'index.html'; return null; }
+  if (isAdminPage && !u.isAdmin) { location.href = 'order.html'; return null; }
   return u;
 }
 
@@ -102,12 +106,12 @@ function topbar(user, title) {
 function coordNav(active) {
   const u = getUser();
   const adminLink = (u && u.isAdmin)
-    ? `<a href="/admin.html" class="${active === 'admin' ? 'on' : ''}"><span>⚙️</span>Admin</a>`
+    ? `<a href="admin.html" class="${active === 'admin' ? 'on' : ''}"><span>⚙️</span>Admin</a>`
     : '';
   return `<nav class="bottomnav">
-    <a href="/order.html" class="${active === 'order' ? 'on' : ''}"><span>📝</span>Order</a>
-    <a href="/orders.html" class="${active === 'orders' ? 'on' : ''}"><span>🌍</span>All</a>
-    <a href="/deliver.html" class="${active === 'deliver' ? 'on' : ''}"><span>🥘</span>Deliver</a>
+    <a href="order.html" class="${active === 'order' ? 'on' : ''}"><span>📝</span>Order</a>
+    <a href="orders.html" class="${active === 'orders' ? 'on' : ''}"><span>🌍</span>All</a>
+    <a href="deliver.html" class="${active === 'deliver' ? 'on' : ''}"><span>🥘</span>Deliver</a>
     ${adminLink}
   </nav>`;
 }

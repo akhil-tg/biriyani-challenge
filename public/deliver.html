@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="stylesheet" href="/css/style.css">
-<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.json">
 <script>
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW fail', e)); }
 </script>
@@ -30,7 +30,7 @@ if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').c
 </div>
 
 <div class="bottomnav" style="display:none"></div>
-<script src="/js/common.js"></script>
+<script src="js/common.js"></script>
 <script>
 const user = requireLogin(false);
 if (user) {

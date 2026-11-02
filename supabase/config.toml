@@ -1,0 +1,7 @@
+# Supabase project config (used by the CLI for functions deploys)
+project_id = "biriyani-challenge"
+
+# The api function does its own session auth (HMAC tokens in _shared/auth.js),
+# so Supabase's built-in JWT gate is off — same trust model as the old worker.
+[functions.api]
+verify_jwt = false
